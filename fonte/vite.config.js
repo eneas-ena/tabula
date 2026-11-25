@@ -24,6 +24,7 @@ const TROCAS = [
   [/title:"Find on canvas"/g, 'title:"Buscar na tela"'],
   [/"Excalidraw links"/g, '"Links da Tábula"'],
   [/"Excalidraw Embedded Content"/g, '"Conteúdo incorporado"'],
+  [/\?"Frame":"AI Frame"/g, '?"Quadro":"Quadro IA"'],
 ];
 function trocarNome(){
   const usadas = new Set();

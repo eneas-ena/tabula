@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script>/* VERSÃO DO APP — a busca automática de atualização compara com esta linha */
-window.VERSAO = '0.2.0';
+window.VERSAO = '0.3.0';
 window.EXCALIDRAW_ASSET_PATH = ['https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/', 'https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.18.1/dist/prod/'];
 try { document.documentElement.dataset.tema = localStorage.getItem('tb.tema') === 'escuro' ? 'escuro' : 'claro'; } catch (e) {}
 </script>
@@ -136,6 +136,53 @@ input{font:inherit}
 #login .ok{color:#1E9E50}
 #login .ver{text-align:center;font-size:11px;color:#9A9384;margin-top:6px}
 
+@media (max-width:1300px){.tb-topo .tb-titulo{width:110px}.tb-rot{display:none}.excalidraw .default-sidebar-trigger .sidebar-trigger__label{display:none!important}}
+@media (max-width:1100px){.tb-topo .tb-titulo{display:none}}
+
+/* ---------- apresentação ---------- */
+#telaEditor:fullscreen{background:#000}
+.ed-palco.apresentando .layer-ui__wrapper,.ed-palco.apresentando .App-bottom-bar,.ed-palco.apresentando .layer-ui__wrapper__footer-left,.ed-palco.apresentando .layer-ui__wrapper__footer-right,.ed-palco.apresentando .App-menu{display:none!important}
+.mascara-slide{position:absolute;z-index:3;pointer-events:none;box-shadow:0 0 0 300vmax #000;border-radius:1px}
+.ap-controles{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:4px;
+  background:rgba(15,27,51,.82);color:#F4EBD3;border-radius:14px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.4);opacity:.35;transition:opacity .2s}
+.ap-controles:hover,.ap-controles:focus-within{opacity:1}
+@media (hover:none){.ap-controles{opacity:.85}}
+.ap-controles button{width:42px;height:42px;border:none;border-radius:10px;background:transparent;color:inherit;display:flex;align-items:center;justify-content:center}
+.ap-controles button:disabled{opacity:.3}
+.ap-controles button.ativo{background:#C9A227;color:#0F1B33}
+.ap-controles button svg{width:22px;height:22px}
+.ap-n{min-width:64px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums}
+.ap-sep{width:1px;height:26px;background:rgba(255,255,255,.2);margin:0 4px}
+.tb-topo .tb-play{background:var(--ouro)!important;color:var(--azul)!important}
+
+/* ---------- painel de slides ---------- */
+.modal .dica{margin:0 0 12px;color:var(--sub);line-height:1.45;font-size:14px}
+.sl-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--borda)}
+.sl-n{width:22px;text-align:center;font-weight:700;color:var(--ouro)}
+.sl-mini{width:72px;height:44px;object-fit:contain;background:#fff;border:1px solid var(--borda);border-radius:6px;flex:none}
+.sl-tx{flex:1;min-width:0}.sl-tx b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sl-tx small{color:var(--sub);font-size:11px}
+.sl-bts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.sl-bts .bt{padding:6px 9px!important;min-width:32px}
+.sl-bts .bt:disabled{opacity:.35}
+
+/* ---------- cores ampliadas ---------- */
+.tb-cores{margin-top:6px}
+.tb-sv{position:relative;height:120px;border-radius:8px;overflow:hidden;touch-action:none;cursor:crosshair}
+.tb-sv canvas{width:100%;height:100%;display:block}
+.tb-sv-alvo{position:absolute;width:16px;height:16px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 1px 4px rgba(0,0,0,.4);transform:translate(-50%,-50%);pointer-events:none}
+.tb-matiz{position:relative;height:14px;margin:12px 6px 4px;border-radius:7px;touch-action:none;cursor:pointer;
+  background:linear-gradient(to right,#f00,#ff0 17%,#0f0 33%,#0ff 50%,#00f 67%,#f0f 83%,#f00)}
+.tb-matiz-alvo{position:absolute;top:50%;width:18px;height:18px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 1px 4px rgba(0,0,0,.4);transform:translate(-50%,-50%);pointer-events:none}
+.tb-cores-linha{display:flex;align-items:center;gap:6px;margin-top:10px}
+.tb-amostra{width:30px;height:30px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}
+.tb-hex{flex:1;min-width:0;height:32px;border:1px solid var(--default-border-color,#ddd);border-radius:8px;padding:0 8px;font:600 13px ui-monospace,Menlo,monospace;background:var(--input-bg-color,#fff);color:var(--text-primary-color,#1b1b1f);outline:none}
+.tb-gotas{width:32px;height:32px;border:1px solid var(--default-border-color,#ddd);border-radius:8px;background:transparent;color:var(--icon-fill-color,#333);display:flex;align-items:center;justify-content:center;padding:0;flex:none}
+.tb-gotas svg{width:16px;height:16px}
+.tb-grupo{margin-top:8px}.tb-grupo.vazio{display:none}
+.tb-amostras{display:flex;flex-wrap:wrap;gap:6px}
+.tb-am{width:22px;height:22px;border-radius:6px;border:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);padding:0;cursor:pointer}
+.excalidraw .color-picker-content{max-height:min(80vh,640px);overflow-y:auto}
+
 /* ---------- editor ---------- */
 #telaEditor{position:fixed;inset:0;background:var(--regua)}
 .ed-palco{position:absolute;inset:0}
@@ -150,11 +197,11 @@ input{font:inherit}
 .tb-topo .tb-bt{height:36px;min-width:36px;border-radius:8px;border:none;background:var(--island-bg-color,#fff);color:var(--icon-fill-color,#1b1b1f);
   box-shadow:0 0 0 1px var(--color-surface-lowest,#ececf4),var(--shadow-island,0 1px 3px rgba(0,0,0,.1));display:inline-flex;align-items:center;justify-content:center;padding:0 8px;gap:4px;font-size:13px}
 .tb-topo .tb-bt svg{width:18px;height:18px}
-.tb-titulo{height:36px;width:170px;border-radius:8px;border:none;padding:0 10px;background:var(--island-bg-color,#fff);color:var(--text-primary-color,#1b1b1f);
+.tb-titulo{height:36px;width:150px;border-radius:8px;border:none;padding:0 10px;background:var(--island-bg-color,#fff);color:var(--text-primary-color,#1b1b1f);
   box-shadow:0 0 0 1px var(--color-surface-lowest,#ececf4),var(--shadow-island,0 1px 3px rgba(0,0,0,.1));outline:none;font-weight:600}
 .tb-st{width:10px;height:10px;border-radius:50%;background:#1E9E50;flex:none}
 .tb-st.salvando{background:var(--ouro)} .tb-st.pend{background:#E67E22} .tb-st.erro{background:#C0392B}
-.tb-ver{font-size:11px;color:var(--color-gray-50,#888);padding:0 2px}
+.tb-ver{font-size:11px;white-space:nowrap;color:var(--color-gray-50,#888);padding:0 2px}
 .HelpDialog__header{display:none!important}
 .excalidraw .welcome-screen-center__logo .tb-logo{font-family:Cinzel,serif;font-size:42px;color:var(--ouro);letter-spacing:.08em}
 </style>

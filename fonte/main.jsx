@@ -9,8 +9,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Excalidraw, MainMenu, WelcomeScreen, exportToBlob, serializeAsJSON,
-  useHandleLibrary, hashElementsVersion,
+  useHandleLibrary, hashElementsVersion, newElementWith,
 } from '@excalidraw/excalidraw';
+import { ativarCoresAmpliadas } from './cores.js';
+import { quadrosOrdenados, nomeQuadro, imagemDoQuadro, exportarPDF, exportarPPTX, entregarArquivo } from './slides.js';
 import '@excalidraw/excalidraw/index.css';
 import { createClient } from '@supabase/supabase-js';
 
@@ -26,6 +28,7 @@ const agora = () => new Date().toISOString();
 const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
 const lerLS = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
 const gravarLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const limitarN = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const dataCurta = iso => { try { const d = new Date(iso); return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 const blobParaDataURL = b => new Promise(res => { const f = new FileReader(); f.onload = () => res(f.result); f.onerror = () => res(null); f.readAsDataURL(b); });
@@ -38,11 +41,21 @@ const I = {
   menu: ic('<path d="M4 6h16M4 12h16M4 18h16"/>'),
   mais: ic('<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'),
   novo: ic('<path d="M12 5v14M5 12h14"/>'),
+  pasta: ic('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+  link: ic('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>'),
 };
 const IcR = ({ d }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: d }} />;
 const D_VOLTAR = '<path d="M15 18l-6-6 6-6"/>';
 const D_SOL = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
 const D_LUA = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+const D_LINK = '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>';
+const D_PLAY = '<path d="M7 4v16l13-8z"/>';
+const D_SLIDES = '<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8 20h8"/>';
+const D_LASER = '<circle cx="12" cy="12" r="2.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>';
+const D_X = '<path d="M18 6L6 18M6 6l12 12"/>';
+const D_ANT = '<path d="M15 18l-6-6 6-6"/>';
+const D_PROX = '<path d="M9 18l6-6-6-6"/>';
+const D_RECARREGAR = '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>';
 
 /* ---------- aviso (rodapé) ---------- */
 let tAviso = null;
@@ -266,18 +279,26 @@ async function entrar(u){
 
 /* ---------- cenas: nuvem + aparelho ---------- */
 const COLS_LISTA = 'id,titulo,miniatura,atualizado_em';
+const COLS_LISTA2 = COLS_LISTA + ',pasta_id,compartilhada,link_token';
+let etapa2 = true, avisouEtapa2 = false;
+const faltaColuna = e => e && /column|pasta|compartilh|link_token|42703|PGRST204|42P01|relation/i.test((e.message || '') + ' ' + (e.code || ''));
+function semEtapa2(){
+  etapa2 = false;
+  if (!avisouEtapa2){ avisouEtapa2 = true; aviso('Para usar pastas e links, rode no Supabase o arquivo tabula-etapa2.sql.', 9000); }
+}
 async function listarCenas(){
   let lista = (await IDB.ler('lista')) || [];
   if (navigator.onLine && usuario){
-    const r = await sb.from('cenas').select(COLS_LISTA).eq('apagado', false).order('atualizado_em', { ascending: false });
+    let r = await sb.from('cenas').select(etapa2 ? COLS_LISTA2 : COLS_LISTA).eq('apagado', false).order('atualizado_em', { ascending: false });
+    if (r.error && etapa2 && faltaColuna(r.error)){ semEtapa2(); r = await sb.from('cenas').select(COLS_LISTA).eq('apagado', false).order('atualizado_em', { ascending: false }); }
     if (!r.error){ lista = r.data; await IDB.gravar('lista', lista); }
   }
   // cenas salvas só no aparelho (sem internet) aparecem também
   for (const k of await IDB.chaves()){
     if (!String(k).startsWith('pend:')) continue;
     const c = await IDB.ler(k); if (!c) continue;
-    const i = lista.findIndex(x => x.id === c.id), resumo = { id: c.id, titulo: c.titulo, miniatura: c.miniatura, atualizado_em: c.atualizado_em };
-    if (i < 0) lista.unshift(resumo); else if (c.atualizado_em > lista[i].atualizado_em) lista[i] = resumo;
+    const i = lista.findIndex(x => x.id === c.id), resumo = { id: c.id, titulo: c.titulo, miniatura: c.miniatura, atualizado_em: c.atualizado_em, pasta_id: c.pasta_id || null };
+    if (i < 0) lista.unshift(resumo); else if (c.atualizado_em > lista[i].atualizado_em) lista[i] = { ...lista[i], ...resumo, pasta_id: lista[i].pasta_id ?? resumo.pasta_id };
   }
   return lista.sort((a, b) => (b.atualizado_em || '').localeCompare(a.atualizado_em || ''));
 }
@@ -285,7 +306,8 @@ async function lerCena(id){
   const local = await IDB.ler('cena:' + id), pend = await IDB.ler('pend:' + id);
   if (pend) return pend;                               // alteração ainda não enviada vence
   if (navigator.onLine){
-    const r = await sb.from('cenas').select('id,titulo,dados,miniatura,atualizado_em').eq('id', id).maybeSingle();
+    let r = await sb.from('cenas').select('id,titulo,dados,miniatura,atualizado_em' + (etapa2 ? ',pasta_id' : '')).eq('id', id).maybeSingle();
+    if (r.error && etapa2 && faltaColuna(r.error)){ semEtapa2(); r = await sb.from('cenas').select('id,titulo,dados,miniatura,atualizado_em').eq('id', id).maybeSingle(); }
     if (!r.error && r.data){ await IDB.gravar('cena:' + id, r.data); return r.data; }
   }
   return local || null;
@@ -297,6 +319,7 @@ async function gravarCena(c){
   if (!navigator.onLine || !usuario) return 'pend';
   const linha = { id: c.id, titulo: c.titulo, dados: c.dados, atualizado_em: c.atualizado_em };
   if (c.miniatura !== undefined) linha.miniatura = c.miniatura;
+  if (c.nova && etapa2 && c.pasta_id) linha.pasta_id = c.pasta_id;      // só ao criar: a pasta muda pelo menu "Mover"
   const r = await sb.from('cenas').upsert(linha);
   if (r.error){ console.warn(r.error); return 'erro'; }
   const atual = await IDB.ler('pend:' + c.id);
@@ -333,7 +356,20 @@ const bibliotecaAdapter = {
 /* =====================================================================
    TELA DAS CENAS
    ===================================================================== */
-let filtro = '', listaAtual = [];
+let filtro = '', listaAtual = [], pastas = [], pastaAtual = lerLS('tb.pasta', 'todas');
+const ehUuid = v => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v);
+const nomePasta = id => (pastas.find(p => p.id === id) || {}).nome;
+
+async function listarPastas(){
+  let l = (await IDB.ler('pastas')) || [];
+  if (navigator.onLine && usuario && etapa2){
+    const r = await sb.from('pastas').select('id,nome,ordem').order('ordem').order('nome');
+    if (r.error){ if (faltaColuna(r.error)) semEtapa2(); }
+    else { l = r.data; await IDB.gravar('pastas', l); }
+  }
+  return l;
+}
+
 function mostrarCenas(){
   const t = $('#telaCenas'); t.classList.remove('oculto'); $('#telaEditor').classList.add('oculto');
   t.innerHTML = `<div class="barra"><span class="marca">${NOME_APP}</span><span class="versao">v${VERSAO}</span><span class="esp"></span>
@@ -342,7 +378,8 @@ function mostrarCenas(){
     <button class="bt-ic" data-bt-tema></button>
     <button class="bt-ic" id="btAtualizar" title="Atualizar app">${I.atualizar}</button>
     <button class="bt-ic" id="btMenu" title="Ajustes">${I.menu}</button></div>
-    <div class="rolagem"><div class="titulo-sec">Minhas cenas</div><div class="grade" id="grade"></div></div>`;
+    <div class="pastas" id="pastas"></div>
+    <div class="rolagem"><div class="titulo-sec" id="tituloSec">Minhas cenas</div><div class="grade" id="grade"></div></div>`;
   $('[data-bt-tema]', t).onclick = trocarTema; aplicarTema(tema);
   $('#btNova', t).onclick = novaCena;
   $('#btAtualizar', t).onclick = atualizarApp;
@@ -361,18 +398,75 @@ async function pintarCenas(){
   const g = $('#grade'); if (!g) return;
   if (!listaAtual.length) g.innerHTML = '<div class="vazio-lista">Carregando…</div>';
   listaAtual = await listarCenas();
-  desenharGrade();
+  pastas = await listarPastas();
+  if (ehUuid(pastaAtual) && !pastas.some(p => p.id === pastaAtual)) pastaAtual = 'todas';
+  desenharPastas(); desenharGrade();
 }
+
+/* ---------- faixa de pastas ---------- */
+function desenharPastas(){
+  const d = $('#pastas'); if (!d) return;
+  if (!etapa2){ d.classList.add('oculto'); return; }
+  d.classList.remove('oculto');
+  const conta = id => listaAtual.filter(c => id === 'todas' ? true : id === 'sem' ? !c.pasta_id : c.pasta_id === id).length;
+  const chip = (id, nome) => `<button class="chip${pastaAtual === id ? ' ativo' : ''}" data-pasta="${id}">${ehUuid(id) ? I.pasta : ''}<span>${esc(nome)}</span><small>${conta(id)}</small>${pastaAtual === id && ehUuid(id) ? `<i data-opc-pasta="${id}">${I.mais}</i>` : ''}</button>`;
+  d.innerHTML = chip('todas', 'Todas') + chip('sem', 'Sem pasta') + pastas.map(p => chip(p.id, p.nome)).join('') +
+    `<button class="chip novo" id="btNovaPasta">${I.novo}<span>Pasta</span></button>`;
+  d.querySelectorAll('[data-pasta]').forEach(b => b.onclick = e => {
+    const op = e.target.closest('[data-opc-pasta]');
+    if (op){ e.stopPropagation(); const p = pastas.find(x => x.id === op.dataset.opcPasta);
+      return menuFlutuante(op, [{ rotulo: 'Renomear pasta', fazer: () => renomearPasta(p) }, { rotulo: 'Apagar pasta', perigo: true, fazer: () => apagarPasta(p) }]); }
+    pastaAtual = b.dataset.pasta; gravarLS('tb.pasta', pastaAtual); desenharPastas(); desenharGrade();
+  });
+  $('#btNovaPasta', d).onclick = criarPasta;
+}
+async function criarPasta(){
+  if (!navigator.onLine) return aviso('Precisa de internet para criar pasta.');
+  const nome = await pedirTexto('Nome da nova pasta', ''); if (!nome) return;
+  const r = await sb.from('pastas').insert({ nome, ordem: pastas.length }).select('id,nome,ordem').single();
+  if (r.error) return aviso('Não consegui criar: ' + r.error.message, 5000);
+  pastas.push(r.data); await IDB.gravar('pastas', pastas);
+  pastaAtual = r.data.id; gravarLS('tb.pasta', pastaAtual); desenharPastas(); desenharGrade();
+}
+async function renomearPasta(p){
+  const nome = await pedirTexto('Renomear pasta', p.nome); if (!nome || nome === p.nome) return;
+  const r = await sb.from('pastas').update({ nome }).eq('id', p.id);
+  if (r.error) return aviso('Não consegui renomear: ' + r.error.message, 5000);
+  p.nome = nome; await IDB.gravar('pastas', pastas); desenharPastas(); desenharGrade();
+}
+async function apagarPasta(p){
+  if (!(await confirmar('Apagar pasta', `Apagar a pasta “${p.nome}”? As cenas dela NÃO são apagadas: vão para “Sem pasta”.`, 'Apagar pasta', true))) return;
+  const r = await sb.from('pastas').delete().eq('id', p.id);
+  if (r.error) return aviso('Não consegui apagar: ' + r.error.message, 5000);
+  pastas = pastas.filter(x => x.id !== p.id); await IDB.gravar('pastas', pastas);
+  listaAtual.forEach(c => { if (c.pasta_id === p.id) c.pasta_id = null; });
+  pastaAtual = 'todas'; gravarLS('tb.pasta', pastaAtual); desenharPastas(); desenharGrade(); aviso('Pasta apagada.');
+}
+async function moverCena(c, pastaId){
+  if (!navigator.onLine) return aviso('Precisa de internet para mover.');
+  const r = await sb.from('cenas').update({ pasta_id: pastaId }).eq('id', c.id).select('id');
+  if (r.error) return aviso('Não consegui mover: ' + r.error.message, 5000);
+  if (!r.data || !r.data.length) return aviso('Essa cena ainda não subiu para a nuvem. Tente de novo em instantes.');
+  c.pasta_id = pastaId;
+  for (const k of ['cena:', 'pend:']){ const x = await IDB.ler(k + c.id); if (x){ x.pasta_id = pastaId; await IDB.gravar(k + c.id, x); } }
+  desenharPastas(); desenharGrade(); aviso(pastaId ? `Movida para “${nomePasta(pastaId)}”.` : 'Movida para “Sem pasta”.');
+}
+
+/* ---------- grade de cenas ---------- */
 function desenharGrade(){
   const g = $('#grade'); if (!g) return;
   const f = filtro.trim().toLowerCase();
-  const itens = listaAtual.filter(c => !f || (c.titulo || '').toLowerCase().includes(f));
+  const naPasta = c => !etapa2 || pastaAtual === 'todas' ? true : pastaAtual === 'sem' ? !c.pasta_id : c.pasta_id === pastaAtual;
+  const itens = listaAtual.filter(c => naPasta(c) && (!f || (c.titulo || '').toLowerCase().includes(f)));
+  const ts = $('#tituloSec'); if (ts) ts.textContent = !etapa2 || pastaAtual === 'todas' ? 'Minhas cenas' : pastaAtual === 'sem' ? 'Cenas sem pasta' : (nomePasta(pastaAtual) || 'Minhas cenas');
   g.innerHTML = `<div class="cartao nova" id="cNova">${I.novo}<span>Nova cena</span></div>` + itens.map(c => `
     <div class="cartao" data-id="${c.id}">
-      <div class="mini">${c.miniatura ? `<img src="${c.miniatura}" alt="">` : '<span class="vazio">em branco</span>'}</div>
-      <div class="info"><div style="flex:1;min-width:0"><div class="nome">${esc(c.titulo || 'Sem título')}</div><div class="data">${dataCurta(c.atualizado_em)}</div></div>
+      <div class="mini">${c.miniatura ? `<img src="${c.miniatura}" alt="">` : '<span class="vazio">em branco</span>'}
+        ${c.compartilhada ? `<span class="selo-link" title="Compartilhada por link">${I.link}</span>` : ''}</div>
+      <div class="info"><div style="flex:1;min-width:0"><div class="nome">${esc(c.titulo || 'Sem título')}</div>
+        <div class="data">${dataCurta(c.atualizado_em)}${pastaAtual === 'todas' && c.pasta_id && nomePasta(c.pasta_id) ? ' · ' + esc(nomePasta(c.pasta_id)) : ''}</div></div>
       <button class="mais" data-mais="${c.id}" title="Opções">${I.mais}</button></div>
-    </div>`).join('') + (f && !itens.length ? '<div class="vazio-lista">Nenhuma cena com esse nome.</div>' : '');
+    </div>`).join('') + (!itens.length ? `<div class="vazio-lista">${f ? 'Nenhuma cena com esse nome.' : 'Nenhuma cena aqui ainda.'}</div>` : '');
   $('#cNova', g).onclick = novaCena;
   g.querySelectorAll('.cartao[data-id]').forEach(el => el.onclick = e => { if (e.target.closest('[data-mais]')) return; abrirCena(el.dataset.id); });
   g.querySelectorAll('[data-mais]').forEach(b => b.onclick = e => {
@@ -380,6 +474,14 @@ function desenharGrade(){
     menuFlutuante(b, [
       { rotulo: 'Abrir', fazer: () => abrirCena(id) },
       { rotulo: 'Renomear', fazer: () => renomearCena(c) },
+      ...(etapa2 ? [
+        { rotulo: 'Mover para pasta…', fazer: () => menuFlutuante(b, [
+          { info: 'Mover para:' },
+          { rotulo: (c.pasta_id ? '' : '✓ ') + 'Sem pasta', fazer: () => moverCena(c, null) },
+          ...pastas.map(p => ({ rotulo: (c.pasta_id === p.id ? '✓ ' : '') + p.nome, fazer: () => moverCena(c, p.id) })),
+        ]) },
+        { rotulo: 'Compartilhar link…', fazer: () => abrirCompartilhar(c.id, c.titulo, () => pintarCenas()) },
+      ] : []),
       { rotulo: 'Duplicar', fazer: () => duplicarCena(c) },
       { rotulo: 'Apagar', perigo: true, fazer: () => apagarCena(c) },
     ]);
@@ -398,7 +500,7 @@ async function renomearCena(c){
 }
 async function duplicarCena(c){
   const cena = await lerCena(c.id); if (!cena) return aviso('Não consegui abrir essa cena agora.');
-  const nova = { id: novoId(), titulo: (cena.titulo || 'Sem título') + ' (cópia)', dados: cena.dados, miniatura: cena.miniatura || null, atualizado_em: agora() };
+  const nova = { id: novoId(), titulo: (cena.titulo || 'Sem título') + ' (cópia)', dados: cena.dados, miniatura: cena.miniatura || null, atualizado_em: agora(), pasta_id: c.pasta_id || null, nova: true };
   await gravarCena(nova); aviso('Cena duplicada.'); pintarCenas();
 }
 async function apagarCena(c){
@@ -407,7 +509,52 @@ async function apagarCena(c){
   const r = await sb.from('cenas').update({ apagado: true, atualizado_em: agora() }).eq('id', c.id);
   if (r.error) return aviso('Não consegui apagar: ' + r.error.message, 5000);
   await IDB.apagar('cena:' + c.id); await IDB.apagar('pend:' + c.id);
-  listaAtual = listaAtual.filter(x => x.id !== c.id); desenharGrade(); aviso('Cena apagada.');
+  listaAtual = listaAtual.filter(x => x.id !== c.id); desenharPastas(); desenharGrade(); aviso('Cena apagada.');
+}
+
+/* ---------- compartilhar por link (só visualizar) ---------- */
+const linkDaCena = token => location.origin + location.pathname + '?ver=' + token;
+async function abrirCompartilhar(id, titulo, aoMudar){
+  if (!etapa2) return aviso('Rode no Supabase o arquivo tabula-etapa2.sql para liberar os links.', 6000);
+  if (!navigator.onLine) return aviso('Precisa de internet para compartilhar.');
+  const r = await sb.from('cenas').select('compartilhada,link_token').eq('id', id).maybeSingle();
+  if (r.error) return aviso('Erro: ' + r.error.message, 5000);
+  if (!r.data) return aviso('Desenhe algo na cena primeiro: ela ainda não foi salva na nuvem.', 5000);
+  let estado = { ...r.data };
+  modal(`<h2>Compartilhar “${esc(titulo || 'Sem título')}”</h2>
+    <p style="margin:0 0 12px;line-height:1.45;color:var(--sub)">Quem tiver o link vê o desenho, mas não consegue alterar. Não precisa de conta.</p>
+    <label class="linha-aj" style="cursor:pointer"><span class="tx"><b>Link ativo</b><small id="shEstado"></small></span><input type="checkbox" id="shAtivo" style="width:22px;height:22px"></label>
+    <div id="shCaixa"><input class="campo" id="shLink" readonly style="margin-top:12px;font-size:13px">
+      <div class="acoes" style="justify-content:flex-start;flex-wrap:wrap">
+        <button class="bt pri" id="shCopiar">Copiar link</button>
+        ${navigator.share ? '<button class="bt" id="shEnviar">Enviar…</button>' : ''}
+        <button class="bt" id="shNovo">Gerar novo link</button>
+      </div></div>
+    <div class="acoes"><button class="bt" data-x>Fechar</button></div>`, (m, fechar) => {
+    $('[data-x]', m).onclick = fechar;
+    const pintar = () => {
+      $('#shAtivo', m).checked = !!estado.compartilhada;
+      $('#shEstado', m).textContent = estado.compartilhada ? 'Qualquer pessoa com o link pode ver' : 'Desligado — o link não abre';
+      $('#shCaixa', m).classList.toggle('oculto', !estado.compartilhada);
+      if (estado.link_token) $('#shLink', m).value = linkDaCena(estado.link_token);
+    };
+    const gravar = async mud => {
+      const x = await sb.from('cenas').update(mud).eq('id', id).select('compartilhada,link_token').single();
+      if (x.error){ aviso('Erro: ' + x.error.message, 5000); return false; }
+      estado = x.data; pintar(); aoMudar && aoMudar(estado); return true;
+    };
+    $('#shAtivo', m).onchange = e => gravar(e.target.checked ? { compartilhada: true, link_token: estado.link_token || novoId() } : { compartilhada: false });
+    $('#shCopiar', m).onclick = async () => {
+      const v = $('#shLink', m).value;
+      try { await navigator.clipboard.writeText(v); aviso('Link copiado.'); } catch { $('#shLink', m).select(); document.execCommand('copy'); aviso('Link copiado.'); }
+    };
+    const env = $('#shEnviar', m); if (env) env.onclick = () => navigator.share({ title: titulo, url: $('#shLink', m).value }).catch(() => {});
+    $('#shNovo', m).onclick = async () => {
+      if (!(await confirmar('Gerar novo link', 'O link atual deixa de funcionar. Quem já tem o link antigo perde o acesso.', 'Gerar novo'))) return;
+      if (await gravar({ compartilhada: true, link_token: novoId() })) aviso('Novo link gerado.');
+    };
+    pintar();
+  });
 }
 
 /* ---------- acessos (só o administrador) ---------- */
@@ -441,7 +588,7 @@ async function abrirCena(id, tituloNovo){
     aviso('Abrindo…', 1200);
     cena = await lerCena(id);
     if (!cena) return aviso('Essa cena não está neste aparelho e não há internet para buscá-la.', 5000);
-  } else cena = { id: novoId(), titulo: tituloNovo || 'Sem título', dados: null, nova: true };
+  } else cena = { id: novoId(), titulo: tituloNovo || 'Sem título', dados: null, nova: true, pasta_id: ehUuid(pastaAtual) ? pastaAtual : null };
   $('#telaCenas').classList.add('oculto');
   const t = $('#telaEditor'); t.classList.remove('oculto');
   if (!raizEditor) raizEditor = createRoot(t);
@@ -501,9 +648,15 @@ function Editor({ cena }){
   const [reguas, setReguas] = useState(lerLS('tb.reguas', true));
   const [status, setStatus] = useState('ok');
   const [titulo, setTitulo] = useState(cena.titulo || 'Sem título');
-  const ref = useRef({ cena: { ...cena }, assinatura: null, alterado: false, tSalvar: null, ultimaMini: 0, salvando: null, vista: { scrollX: 0, scrollY: 0, zoom: 1 }, ponteiro: null, raf: 0 });
-  const rH = useRef(null), rV = useRef(null), rPontos = useRef(null), palco = useRef(null);
+  const [apresentando, setApresentando] = useState(false);
+  const [idx, setIdx] = useState(0);
+  const [laser, setLaser] = useState(false);
+  const ref = useRef({ cena: { ...cena }, assinatura: null, alterado: false, tSalvar: null, ultimaMini: 0, salvando: null, vista: { scrollX: 0, scrollY: 0, zoom: 1 }, ponteiro: null, raf: 0,
+    slides: (cena.dados && cena.dados.tabula && cena.dados.tabula.slides) || [], idx: 0, apresentando: false });
+  const rH = useRef(null), rV = useRef(null), rPontos = useRef(null), palco = useRef(null), rMascara = useRef(null);
   const st = ref.current;
+
+  useEffect(() => api ? ativarCoresAmpliadas(() => api) : undefined, [api]);
 
   useHandleLibrary({ excalidrawAPI: api, adapter: bibliotecaAdapter });
 
@@ -516,7 +669,11 @@ function Editor({ cena }){
     cancelAnimationFrame(st.raf);
     st.raf = requestAnimationFrame(() => {
       const v = st.vista;
-      if (reguas){ desenharRegua(rH.current, true, v, st.ponteiro); desenharRegua(rV.current, false, v, st.ponteiro); }
+      if (st.apresentando && rMascara.current){
+        const q = quadrosOrdenados(api, st.slides)[st.idx], m = rMascara.current;
+        if (q){ m.style.left = (q.x + v.scrollX) * v.zoom + 'px'; m.style.top = (q.y + v.scrollY) * v.zoom + 'px'; m.style.width = q.width * v.zoom + 'px'; m.style.height = q.height * v.zoom + 'px'; }
+      }
+      if (reguas && !st.apresentando){ desenharRegua(rH.current, true, v, st.ponteiro); desenharRegua(rV.current, false, v, st.ponteiro); }
       const p = rPontos.current;
       if (p){
         let gap = 20 * v.zoom; while (gap < 10) gap *= 2;
@@ -527,13 +684,13 @@ function Editor({ cena }){
         p.style.backgroundPosition = `${ox - gap / 2}px ${oy - gap / 2}px`;
       }
     });
-  }, [reguas, st]);
+  }, [reguas, st, api]);
   useEffect(() => { redesenhar(); }, [reguas, pontilhado, temaEd, redesenhar]);
   useEffect(() => { const ro = new ResizeObserver(() => redesenhar()); palco.current && ro.observe(palco.current); return () => ro.disconnect(); }, [redesenhar]);
 
   /* camada de pontos fica entre o desenho e os botões do editor */
   useEffect(() => {
-    if (!api || !pontilhado){ rPontos.current && rPontos.current.remove(); rPontos.current = null; return; }
+    if (!api || !pontilhado || apresentando){ rPontos.current && rPontos.current.remove(); rPontos.current = null; return; }
     const tentar = () => {
       const cv = palco.current && palco.current.querySelector('canvas.excalidraw__canvas.interactive');
       if (!cv) return setTimeout(tentar, 120);
@@ -542,7 +699,7 @@ function Editor({ cena }){
     };
     tentar();
     return () => { rPontos.current && rPontos.current.remove(); rPontos.current = null; };
-  }, [api, pontilhado, redesenhar]);
+  }, [api, pontilhado, apresentando, redesenhar]);
 
   /* ---------- salvar ---------- */
   const salvarAgora = useCallback(async (comMiniatura) => {
@@ -555,6 +712,7 @@ function Editor({ cena }){
       const elementos = api.getSceneElements(), appState = api.getAppState(), todos = api.getFiles();
       const usados = {}; elementos.forEach(e => { if (e.fileId && todos[e.fileId]) usados[e.fileId] = todos[e.fileId]; });
       const dados = JSON.parse(serializeAsJSON(elementos, appState, usados, 'local'));
+      dados.tabula = { slides: st.slides };                                    // ordem dos slides (quadros)
       const c = st.cena; c.dados = dados; c.titulo = st.titulo || c.titulo; c.atualizado_em = agora();
       if (comMiniatura || Date.now() - st.ultimaMini > 20000){
         st.ultimaMini = Date.now();
@@ -589,6 +747,115 @@ function Editor({ cena }){
     clearTimeout(st.tSalvar); st.tSalvar = setTimeout(() => salvarAgora(false), 1500);
   }, [redesenhar, salvarAgora, st]);
 
+  const marcarAlterado = () => { st.alterado = true; setStatus('pend-local'); clearTimeout(st.tSalvar); st.tSalvar = setTimeout(() => salvarAgora(false), 1200); };
+
+  /* ---------- apresentação: cada quadro é um slide ---------- */
+  const enquadrar = useCallback((animar = true) => {
+    const q = quadrosOrdenados(api, st.slides)[st.idx]; if (!q) return;
+    api.scrollToContent(q, { fitToViewport: true, viewportZoomFactor: 1, animate: animar, duration: 350 });
+    setTimeout(redesenhar, animar ? 380 : 30);
+  }, [api, st, redesenhar]);
+  const irPara = useCallback(i => {
+    const n = quadrosOrdenados(api, st.slides).length; if (!n) return;
+    st.idx = limitarN(i, 0, n - 1); setIdx(st.idx); enquadrar(true);
+  }, [api, st, enquadrar]);
+  const iniciarApresentacao = useCallback((i = 0) => {
+    const qs = quadrosOrdenados(api, st.slides);
+    if (!qs.length) return aviso('Para apresentar, crie quadros com a ferramenta Quadro (tecla F, no menu ⋯ da barra). Cada quadro vira um slide.', 8000);
+    document.querySelectorAll('.fundo-modal').forEach(x => x.remove());
+    st.idx = limitarN(i, 0, qs.length - 1); setIdx(st.idx);
+    st.frAntes = api.getAppState().frameRendering;
+    api.updateScene({ appState: { frameRendering: { ...st.frAntes, enabled: true, name: false, outline: false, clip: true }, selectedElementIds: {} } });
+    st.apresentando = true; setApresentando(true); setLaser(false);
+    const el = $('#telaEditor');
+    try { const pr = (el.requestFullscreen || el.webkitRequestFullscreen).call(el); if (pr && pr.catch) pr.catch(() => {}); } catch {}
+    setTimeout(() => enquadrar(false), 120); setTimeout(() => enquadrar(false), 600);
+  }, [api, st, enquadrar]);
+  const sairApresentacao = useCallback(() => {
+    if (!st.apresentando) return;
+    st.apresentando = false; setApresentando(false); setLaser(false);
+    try { api.updateScene({ appState: { frameRendering: st.frAntes } }); api.setActiveTool({ type: 'selection' }); } catch {}
+    const fe = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fe){ try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch {} }
+    setTimeout(redesenhar, 200);
+  }, [api, st, redesenhar]);
+  useEffect(() => {
+    if (!apresentando) return;
+    const tecla = e => {
+      const k = e.key;
+      if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(k)){ e.preventDefault(); e.stopPropagation(); irPara(st.idx + 1); }
+      else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(k)){ e.preventDefault(); e.stopPropagation(); irPara(st.idx - 1); }
+      else if (k === 'Home'){ e.preventDefault(); irPara(0); }
+      else if (k === 'End'){ e.preventDefault(); irPara(1e9); }
+      else if (k === 'Escape'){ e.preventDefault(); e.stopPropagation(); sairApresentacao(); }
+    };
+    const tela = () => { if (!(document.fullscreenElement || document.webkitFullscreenElement) && st.estavaCheia) sairApresentacao(); st.estavaCheia = !!(document.fullscreenElement || document.webkitFullscreenElement); };
+    const tam = () => setTimeout(() => enquadrar(false), 150);
+    window.addEventListener('keydown', tecla, true);
+    document.addEventListener('fullscreenchange', tela); document.addEventListener('webkitfullscreenchange', tela);
+    window.addEventListener('resize', tam);
+    return () => { window.removeEventListener('keydown', tecla, true); document.removeEventListener('fullscreenchange', tela); document.removeEventListener('webkitfullscreenchange', tela); window.removeEventListener('resize', tam); st.estavaCheia = false; };
+  }, [apresentando, irPara, sairApresentacao, enquadrar, st]);
+  const alternarLaser = () => { const novo = !laser; setLaser(novo); try { api.setActiveTool({ type: novo ? 'laser' : 'hand' }); } catch {} };
+
+  /* ---------- painel de slides (ordem, nomes, miniaturas) ---------- */
+  const abrirSlides = () => {
+    if (!api) return;
+    const cache = new Map();
+    modal(`<h2>Slides</h2><p class="dica">Cada <b>quadro</b> da cena é um slide (ferramenta Quadro, tecla F). Arrume a ordem aqui.</p>
+      <div id="lsSl"></div>
+      <div class="acoes"><button class="bt" data-x>Fechar</button><button class="bt pri" id="slAp">▶ Apresentar</button></div>`, (m, fechar) => {
+      $('[data-x]', m).onclick = fechar;
+      $('#slAp', m).onclick = () => { fechar(); iniciarApresentacao(0); };
+      const pintar = () => {
+        const qs = quadrosOrdenados(api, st.slides);
+        const novaOrdem = qs.map(q => q.id);
+        if (novaOrdem.join() !== st.slides.join()){ st.slides = novaOrdem; }
+        $('#lsSl', m).innerHTML = qs.length ? qs.map((q, i) => `<div class="sl-item" data-id="${q.id}">
+            <span class="sl-n">${i + 1}</span><img class="sl-mini" alt="">
+            <div class="sl-tx"><b>${esc(nomeQuadro(q, i))}</b><small>${Math.round(q.width)} × ${Math.round(q.height)}</small></div>
+            <div class="sl-bts"><button class="bt" data-a="up" title="Subir" ${i ? '' : 'disabled'}>↑</button><button class="bt" data-a="dn" title="Descer" ${i < qs.length - 1 ? '' : 'disabled'}>↓</button>
+            <button class="bt" data-a="ren" title="Renomear">✎</button><button class="bt" data-a="ir" title="Ver no quadro">Ir</button><button class="bt" data-a="ap" title="Apresentar a partir daqui">▶</button></div></div>`).join('')
+          : '<div class="vazio-lista">Nenhum quadro nesta cena ainda.<br>Use a ferramenta <b>Quadro</b> (tecla F) e desenhe um retângulo: tudo o que ficar dentro dele forma um slide.</div>';
+        qs.forEach(async q => {
+          const chave = q.id + ':' + q.version + ':' + hashElementsVersion(api.getSceneElements());
+          let url = cache.get(chave);
+          if (!url){ try { url = (await imagemDoQuadro(api, q, 240)).url; cache.set(chave, url); } catch { return; } }
+          const img = m.querySelector(`.sl-item[data-id="${q.id}"] .sl-mini`); if (img) img.src = url;
+        });
+        m.querySelectorAll('.sl-item').forEach(el => el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+          const id = el.dataset.id, i = st.slides.indexOf(id), a = b.dataset.a;
+          if (a === 'up' || a === 'dn'){
+            const j = a === 'up' ? i - 1 : i + 1; const o = [...st.slides]; [o[i], o[j]] = [o[j], o[i]]; st.slides = o; marcarAlterado(); pintar();
+          } else if (a === 'ren'){
+            const q = api.getSceneElements().find(x => x.id === id);
+            const nome = await pedirTexto('Nome do slide', nomeQuadro(q, i)); if (!nome) return;
+            api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map(x => x.id === id ? newElementWith(x, { name: nome }) : x) });
+            setTimeout(pintar, 50);
+          } else if (a === 'ir'){
+            fechar(); const q = api.getSceneElements().find(x => x.id === id);
+            api.scrollToContent(q, { fitToViewport: true, viewportZoomFactor: .9, animate: true });
+          } else if (a === 'ap'){ fechar(); iniciarApresentacao(i); }
+        }));
+      };
+      pintar();
+    });
+  };
+
+  /* ---------- exportar PDF / PowerPoint ---------- */
+  const exportar = async tipo => {
+    if (!api) return;
+    const n = quadrosOrdenados(api, st.slides).length;
+    if (!n && !(await confirmar('Sem quadros', 'Esta cena não tem quadros (slides). Exportar o desenho inteiro numa página só?', 'Exportar assim'))) return;
+    try {
+      const f = tipo === 'PDF' ? exportarPDF : exportarPPTX;
+      const r = await f(api, st.slides, st.titulo || titulo, (i, t) => aviso(`Gerando ${tipo}… slide ${i} de ${t}`, 0));
+      const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (ios) aviso(`${tipo} pronto (${r.paginas} ${r.paginas > 1 ? 'slides' : 'slide'}).`, 0, { rotulo: 'Salvar / Enviar', fazer: () => entregarArquivo(r.blob, r.nome) });
+      else { await entregarArquivo(r.blob, r.nome); aviso(`${tipo} pronto: ${r.nome}`, 4000); }
+    } catch (e) { console.error(e); aviso('Não consegui gerar o ' + tipo + ': ' + (e.message || e), 7000); }
+  };
+
   const mudarTitulo = v => { setTitulo(v); st.titulo = v; st.alterado = true; clearTimeout(st.tSalvar); st.tSalvar = setTimeout(() => salvarAgora(false), 1200); };
 
   const iniciais = useRef(cena.dados ? { ...cena.dados, appState: { ...(cena.dados.appState || {}) }, scrollToContent: !(cena.dados.appState && cena.dados.appState.scrollX !== undefined) } : { appState: { viewBackgroundColor: '#ffffff' } }).current;
@@ -599,8 +866,11 @@ function Editor({ cena }){
 
   const topoDireita = (isMobile) => (
     <div className="tb-topo">
-      <button className="tb-bt" title="Voltar às cenas" onClick={fecharEditor}><IcR d={D_VOLTAR} />{!isMobile && 'Cenas'}</button>
+      <button className="tb-bt" title="Voltar às cenas" onClick={fecharEditor}><IcR d={D_VOLTAR} />{!isMobile && <span className="tb-rot">Cenas</span>}</button>
       {!isMobile && <input className="tb-titulo" value={titulo} onChange={e => mudarTitulo(e.target.value)} title="Nome da cena" />}
+      <button className="tb-bt" title="Slides (ordem dos quadros)" onClick={abrirSlides}><IcR d={D_SLIDES} /></button>
+      <button className="tb-bt tb-play" title="Apresentar" onClick={() => iniciarApresentacao(0)}><IcR d={D_PLAY} />{!isMobile && 'Apresentar'}</button>
+      <button className="tb-bt" title="Compartilhar link" onClick={async () => { await salvarAgora(true); abrirCompartilhar(st.cena.id, st.titulo || titulo); }}><IcR d={D_LINK} /></button>
       <span className={'tb-st ' + corStatus} title={textoStatus}></span>
       <button className="tb-bt" title={temaEd === 'escuro' ? 'Modo claro' : 'Modo escuro'} onClick={trocarTema}><IcR d={temaEd === 'escuro' ? D_SOL : D_LUA} /></button>
       <span className="tb-ver">v{VERSAO}</span>
@@ -609,12 +879,13 @@ function Editor({ cena }){
 
   return (
     <>
-      {reguas && <>
+      {reguas && !apresentando && <>
         <div className="regua-canto">px</div>
         <canvas className="regua h" ref={rH} style={{ width: 'calc(100% - 20px)' }} />
         <canvas className="regua v" ref={rV} style={{ height: 'calc(100% - 20px)' }} />
       </>}
-      <div ref={palco} className={'ed-palco' + (reguas ? ' com-reguas' : '')} style={reguas ? { width: 'calc(100% - 20px)', height: 'calc(100% - 20px)' } : null}>
+      <div ref={palco} className={'ed-palco' + (reguas && !apresentando ? ' com-reguas' : '') + (apresentando ? ' apresentando' : '')} style={reguas && !apresentando ? { width: 'calc(100% - 20px)', height: 'calc(100% - 20px)' } : null}>
+        {apresentando && <div className="mascara-slide" ref={rMascara} />}
         <Excalidraw
           excalidrawAPI={setApi}
           initialData={iniciais}
@@ -626,10 +897,16 @@ function Editor({ cena }){
           name={titulo}
           renderTopRightUI={topoDireita}
           UIOptions={{ canvasActions: { toggleTheme: false } }}
+          viewModeEnabled={apresentando}
         >
           <MainMenu>
             <MainMenu.Item onSelect={fecharEditor}>← Voltar às cenas</MainMenu.Item>
             <MainMenu.Item onSelect={async () => { const t = await pedirTexto('Nome da cena', titulo); if (t) mudarTitulo(t); }}>Renomear cena</MainMenu.Item>
+            <MainMenu.Separator />
+            <MainMenu.Item onSelect={() => iniciarApresentacao(0)}>▶ Apresentar</MainMenu.Item>
+            <MainMenu.Item onSelect={abrirSlides}>Slides (ordem dos quadros)</MainMenu.Item>
+            <MainMenu.Item onSelect={() => exportar('PDF')}>Exportar PDF</MainMenu.Item>
+            <MainMenu.Item onSelect={() => exportar('PowerPoint')}>Exportar PowerPoint (PPTX)</MainMenu.Item>
             <MainMenu.Separator />
             <MainMenu.DefaultItems.LoadScene />
             <MainMenu.DefaultItems.SaveToActiveFile />
@@ -662,7 +939,88 @@ function Editor({ cena }){
           </WelcomeScreen>
         </Excalidraw>
       </div>
+      {apresentando && (() => { const n = quadrosOrdenados(api, st.slides).length; return (
+        <div className="ap-controles">
+          <button onClick={() => irPara(st.idx - 1)} disabled={idx <= 0} title="Anterior (←)"><IcR d={D_ANT} /></button>
+          <span className="ap-n">{idx + 1} / {n}</span>
+          <button onClick={() => irPara(st.idx + 1)} disabled={idx >= n - 1} title="Próximo (→)"><IcR d={D_PROX} /></button>
+          <span className="ap-sep" />
+          <button className={laser ? 'ativo' : ''} onClick={alternarLaser} title="Apontador laser"><IcR d={D_LASER} /></button>
+          <button onClick={sairApresentacao} title="Sair (Esc)"><IcR d={D_X} /></button>
+        </div>); })()}
     </>
+  );
+}
+
+/* =====================================================================
+   VISUALIZADOR — quem recebe o link só vê (não precisa de conta)
+   ===================================================================== */
+async function buscarCenaPublica(token){
+  const r = await sb.rpc('cena_publica', { p_token: token });
+  if (r.error) throw r.error;
+  return Array.isArray(r.data) ? r.data[0] : r.data;
+}
+async function mostrarVisualizador(token){
+  let cena = null;
+  try { cena = await buscarCenaPublica(token); }
+  catch (e) {
+    return telaMensagem('Não consegui abrir', navigator.onLine ? 'O desenho não pôde ser carregado agora. Tente de novo em instantes.' : 'Sem internet. Conecte-se para ver o desenho.',
+      [{ rotulo: 'Tentar de novo', pri: true, fazer: () => mostrarVisualizador(token) }]);
+  }
+  if (!cena) return telaMensagem('Link indisponível', 'Este link foi desligado por quem compartilhou, ou não existe.');
+  document.title = (cena.titulo || 'Desenho') + ' · ' + NOME_APP;
+  $('#telaCenas').classList.add('oculto');
+  const t = $('#telaEditor'); t.classList.remove('oculto');
+  createRoot(t).render(<Visualizador cena={cena} token={token} />);
+}
+function Visualizador({ cena, token }){
+  const [api, setApi] = useState(null);
+  const [temaV, setTemaV] = useState(tema);
+  const [quando, setQuando] = useState(cena.atualizado_em);
+  useEffect(() => { const f = x => setTemaV(x); ouvintesTema.add(f); return () => ouvintesTema.delete(f); }, []);
+  const dados = cena.dados || {};
+  const iniciais = useRef({ elements: dados.elements || [], files: dados.files || {}, appState: { viewBackgroundColor: (dados.appState && dados.appState.viewBackgroundColor) || '#ffffff' }, scrollToContent: true }).current;
+  const recarregar = async () => {
+    try {
+      const c = await buscarCenaPublica(token);
+      if (!c) return aviso('Este link foi desligado.', 5000);
+      const d = c.dados || {};
+      if (d.files) api.addFiles(Object.values(d.files));
+      api.updateScene({ elements: d.elements || [], appState: { viewBackgroundColor: (d.appState && d.appState.viewBackgroundColor) || '#ffffff' } });
+      setQuando(c.atualizado_em); aviso('Desenho atualizado.');
+    } catch { aviso('Não consegui atualizar agora.'); }
+  };
+  return (
+    <div className="ed-palco">
+      <Excalidraw
+        excalidrawAPI={setApi}
+        initialData={iniciais}
+        viewModeEnabled={true}
+        langCode="pt-BR"
+        theme={temaV === 'escuro' ? 'dark' : 'light'}
+        name={cena.titulo || 'Desenho'}
+        UIOptions={{ canvasActions: { toggleTheme: false, loadScene: false, saveToActiveFile: false, clearCanvas: false, changeViewBackgroundColor: false } }}
+        renderTopRightUI={(isMobile) => (
+          <div className="tb-topo">
+            {!isMobile && <span className="tb-bt tb-somente" title={'Atualizado em ' + dataCurta(quando)}>{cena.titulo || 'Desenho'} · só visualização</span>}
+            <button className="tb-bt" title="Ver a versão mais recente" onClick={recarregar}><IcR d={D_RECARREGAR} /></button>
+            <button className="tb-bt" title={temaV === 'escuro' ? 'Modo claro' : 'Modo escuro'} onClick={trocarTema}><IcR d={temaV === 'escuro' ? D_SOL : D_LUA} /></button>
+            <span className="tb-ver">v{VERSAO}</span>
+          </div>
+        )}
+      >
+        <MainMenu>
+          <MainMenu.Item onSelect={recarregar}>Ver a versão mais recente</MainMenu.Item>
+          <MainMenu.DefaultItems.SaveAsImage />
+          <MainMenu.DefaultItems.SearchMenu />
+          <MainMenu.DefaultItems.Help />
+          <MainMenu.Separator />
+          <MainMenu.Item onSelect={trocarTema}>{temaV === 'escuro' ? '☀ Modo claro' : '☾ Modo escuro'}</MainMenu.Item>
+          <MainMenu.Item onSelect={() => verificarVersao(true)}>Verificar atualização (v{VERSAO})</MainMenu.Item>
+          <MainMenu.Item onSelect={atualizarApp}>Atualizar app agora</MainMenu.Item>
+        </MainMenu>
+      </Excalidraw>
+    </div>
   );
 }
 
@@ -671,6 +1029,8 @@ function Editor({ cena }){
    ===================================================================== */
 async function iniciar(){
   aplicarTema(tema);
+  const tokenVer = new URLSearchParams(location.search).get('ver');
+  if (tokenVer){ await mostrarVisualizador(tokenVer); setTimeout(verificarVersao, 5000); return; }
   let sess = null;
   try { const r = await sb.auth.getSession(); sess = r.data && r.data.session; } catch {}
   if (sess) await entrar(sess.user);
