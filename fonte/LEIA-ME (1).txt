@@ -1,0 +1,7 @@
+Código-fonte da Tábula (não precisa mexer aqui).
+O index.html publicado é gerado a partir destes arquivos:
+  modelo.html  -> vira o index.html (estilos e a linha da versão)
+  main.jsx     -> o app (login, cenas, editor, réguas, pontilhado)
+  traducoes-ptbr.json -> frases do editor traduzidas
+  vite.config.js e pacotes.json -> como montar
+Editor: @excalidraw/excalidraw 0.18.1 (licença MIT, © Excalidraw).

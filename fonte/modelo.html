@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script>/* VERSÃO DO APP — a busca automática de atualização compara com esta linha */
-window.VERSAO = '0.1.1';
+window.VERSAO = '0.2.0';
 window.EXCALIDRAW_ASSET_PATH = ['https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/', 'https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.18.1/dist/prod/'];
 try { document.documentElement.dataset.tema = localStorage.getItem('tb.tema') === 'escuro' ? 'escuro' : 'claro'; } catch (e) {}
 </script>
@@ -55,6 +55,24 @@ input{font:inherit}
 .bt-ouro{background:var(--ouro);color:var(--azul);border:none;border-radius:10px;padding:9px 14px;font-weight:600}
 .busca{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:var(--barra-tx);border-radius:10px;padding:8px 12px;width:200px;max-width:40vw;outline:none}
 .busca::placeholder{color:var(--barra-sub)}
+
+/* ---------- pastas ---------- */
+.pastas{display:flex;gap:8px;padding:10px 14px;overflow-x:auto;-webkit-overflow-scrolling:touch;border-bottom:1px solid var(--borda);background:var(--fundo);flex:none;scrollbar-width:none}
+.pastas::-webkit-scrollbar{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;flex:none;border:1px solid var(--borda);background:var(--painel);color:var(--tx);border-radius:20px;padding:7px 12px;font-size:14px;white-space:nowrap}
+.chip svg{width:16px;height:16px;color:var(--ouro)}
+.chip small{font-size:11px;color:var(--sub);background:var(--fundo);border-radius:10px;padding:1px 7px}
+.chip.ativo{background:var(--azul);color:#F4EBD3;border-color:var(--azul)}
+.chip.ativo small{background:rgba(255,255,255,.15);color:#F4EBD3}
+[data-tema="escuro"] .chip.ativo{background:var(--ouro);color:var(--azul);border-color:var(--ouro)}
+[data-tema="escuro"] .chip.ativo small{background:rgba(15,27,51,.15);color:var(--azul)}
+.chip i{display:inline-flex;width:22px;height:22px;align-items:center;justify-content:center;border-radius:6px;margin-right:-6px}
+.chip i svg{color:currentColor}
+.chip.novo{border-style:dashed;background:transparent;color:var(--sub)}
+.cartao .mini{position:relative}
+.selo-link{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:8px;background:var(--azul);color:var(--ouro);display:flex;align-items:center;justify-content:center}
+.selo-link svg{width:16px;height:16px}
+.tb-somente{font-weight:600;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
 
 /* ---------- grade de cenas ---------- */
 #telaCenas{position:fixed;inset:0;display:flex;flex-direction:column}

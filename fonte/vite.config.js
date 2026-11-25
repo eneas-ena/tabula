@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
+import { readFileSync } from 'node:fs';
+const PT = readFileSync(new URL('./traducoes-ptbr.json', import.meta.url), 'utf8');
 
 /* Troca, dentro do editor, o nome "Excalidraw" que aparece na tela e a extensão dos arquivos.
    O conteúdo do arquivo continua no formato aberto (JSON), então .excalidraw antigos também abrem. */
@@ -34,10 +36,19 @@ function trocarNome(){
       // textos das traduções (pt-BR e inglês): Excalidraw → Tábula dentro das frases
       if (/locales\/(pt-BR|en)-|chunk-6U3AYISY/.test(id))
         out = out.replace(/(?<![A-Za-z_$.])Excalidraw\+?(?![A-Za-z_$])/g, 'Tábula');
+      // completa no pt-BR as frases que o editor só tem em inglês (traducoes-ptbr.json)
+      if (/locales\/pt-BR-/.test(id)){
+        const m = out.match(/export\{[^}]*\b(\w+) as default/);
+        if (!m) this.error('pt-BR: export default não encontrado');
+        const junta = `;(function(o,a){for(const k in a){const p=k.split('.');let t=o;for(let i=0;i<p.length-1;i++){t=t[p[i]]=t[p[i]]||{}}const f=p[p.length-1];if(!t[f])t[f]=a[k]}})(${m[1]},${PT});\n`;
+        out = out.replace(/export\{[^}]*\}\s*;?\s*$/, x => junta + x);
+        usadas.add('pt');
+      }
       return out === code ? null : { code: out, map: null };
     },
     buildEnd(){
       const faltou = TROCAS.map((t, i) => i).filter(i => !usadas.has(i));
+      if (!usadas.has('pt')) this.error('Traduções pt-BR não aplicadas');
       if (faltou.length) this.error('Trocas não aplicadas: ' + faltou.map(i => TROCAS[i][0]).join(' | '));
     },
   };
