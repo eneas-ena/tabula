@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script>/* VERSÃO DO APP — a busca automática de atualização compara com esta linha */
-window.VERSAO = '0.4.2';
+window.VERSAO = '0.5.0';
 window.EXCALIDRAW_ASSET_PATH = ['https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/', 'https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.18.1/dist/prod/'];
 try { document.documentElement.dataset.tema = localStorage.getItem('tb.tema') === 'escuro' ? 'escuro' : 'claro'; } catch (e) {}
 </script>
@@ -137,13 +137,52 @@ input{font:inherit}
 #login .ver{text-align:center;font-size:11px;color:#9A9384;margin-top:6px}
 
 @media (max-width:1300px){.tb-topo .tb-titulo{width:110px}.tb-rot{display:none}.excalidraw .default-sidebar-trigger .sidebar-trigger__label{display:none!important}}
-@media (max-width:1100px){.tb-topo .tb-titulo{display:none}}
+@media (max-width:1240px){.tb-topo .tb-titulo{display:none}}
 
 /* ---------- botão Enquadrar tudo ---------- */
 .excalidraw .tb-enquadrar{border:none;background:transparent;padding:0;margin:0;cursor:pointer;color:var(--icon-fill-color)}
 .excalidraw .tb-enquadrar .ToolIcon__icon{display:flex;align-items:center;justify-content:center}
 .excalidraw .tb-enquadrar .ToolIcon__icon svg{width:var(--icon-size,1rem);height:var(--icon-size,1rem)}
 .excalidraw .tb-enquadrar:hover .ToolIcon__icon{background:var(--button-hover-bg,var(--color-surface-mid))}
+
+/* ---------- comentários ---------- */
+.com-camada{position:absolute;inset:0;pointer-events:none;z-index:3;overflow:hidden}
+.com-captura{position:absolute;inset:0;pointer-events:auto;cursor:crosshair;background:rgba(201,162,39,.04)}
+.com-pino{position:absolute;pointer-events:auto;width:30px;height:30px;margin:-30px 0 0 0;border:2px solid #fff;border-radius:15px 15px 15px 3px;
+  background:#C9A227;color:#0F1B33;font:700 13px -apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;padding:0;transition:transform .1s}
+.com-pino:hover,.com-pino.ativo{transform:scale(1.12);background:#0F1B33;color:#C9A227}
+.com-pino.resolvido{background:#9AA3B5;color:#fff}
+.com-pino.novo{background:#0F1B33;color:#C9A227;cursor:default}
+.com-fio{position:absolute;pointer-events:auto;width:300px;margin:-30px 0 0 22px;background:var(--painel);color:var(--tx);border:1px solid var(--borda);
+  border-radius:12px;box-shadow:var(--sombra);padding:10px;z-index:5;font-size:14px}
+.com-fio.esq{margin-left:-312px}
+.com-cab{display:flex;align-items:center;gap:4px;margin-bottom:6px}
+.com-cab b{flex:1;font-family:Cinzel,serif;font-size:13px}
+.com-mini{width:28px;height:28px;border:none;border-radius:7px;background:transparent;color:var(--sub);font-size:13px;padding:0}
+.com-mini:hover{background:var(--fundo)} .com-mini.ok{background:#1E9E50;color:#fff}
+.com-lista{max-height:240px;overflow:auto;margin-bottom:8px}
+.com-msg{padding:6px 0;border-bottom:1px solid var(--borda)}
+.com-autor{font-weight:600;font-size:12px;display:flex;align-items:center;gap:6px}
+.com-autor small{font-weight:400;color:var(--sub)}
+.com-x{margin-left:auto;border:none;background:none;color:var(--sub);font-size:16px;line-height:1;padding:0 4px}
+.com-texto{white-space:pre-wrap;line-height:1.4;margin-top:2px;user-select:text;-webkit-user-select:text}
+.com-res{font-size:12px;color:#1E9E50;font-weight:600;margin-top:6px}
+.com-fio textarea{width:100%;border:1px solid var(--borda);border-radius:8px;padding:8px;background:var(--fundo);color:var(--tx);font:inherit;resize:vertical;outline:none}
+.com-acoes{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.com-acoes small{color:var(--sub);font-size:11px}
+.com-enviar{border:none;border-radius:8px;background:var(--azul);color:#F4EBD3;padding:7px 12px;font-weight:600}
+[data-tema="escuro"] .com-enviar{background:var(--ouro);color:var(--azul)}
+.com-enviar:disabled{opacity:.4}
+.excalidraw .tb-comentar{border:none;background:transparent;padding:0;margin:0;cursor:pointer;color:var(--icon-fill-color);position:relative}
+.excalidraw .tb-comentar .ToolIcon__icon{display:flex;align-items:center;justify-content:center}
+.excalidraw .tb-comentar .ToolIcon__icon svg{width:var(--icon-size,1rem);height:var(--icon-size,1rem)}
+.excalidraw .tb-comentar:hover .ToolIcon__icon{background:var(--button-hover-bg,var(--color-surface-mid))}
+.excalidraw .tb-comentar.ativo .ToolIcon__icon{background:var(--color-primary-light,#e0dfff)}
+.excalidraw .tb-comentar[data-n]:not([data-n=""])::after{content:attr(data-n);position:absolute;top:-2px;right:-2px;min-width:15px;height:15px;border-radius:8px;
+  background:#C9A227;color:#0F1B33;font:700 9px/15px -apple-system,sans-serif;text-align:center;padding:0 3px}
+.ver-item{border-bottom:1px solid var(--borda)}
+.ver-previa{display:block;max-width:100%;margin:0 0 10px;border:1px solid var(--borda);border-radius:8px;background:#fff}
 
 /* ---------- apresentação ---------- */
 #telaEditor:fullscreen{background:#000}
@@ -163,10 +202,10 @@ input{font:inherit}
 
 /* ---------- painel de slides ---------- */
 .modal .dica{margin:0 0 12px;color:var(--sub);line-height:1.45;font-size:14px}
-.sl-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--borda)}
+.sl-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--borda);flex-wrap:wrap}
 .sl-n{width:22px;text-align:center;font-weight:700;color:var(--ouro)}
 .sl-mini{width:72px;height:44px;object-fit:contain;background:#fff;border:1px solid var(--borda);border-radius:6px;flex:none}
-.sl-tx{flex:1;min-width:0}.sl-tx b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sl-tx small{color:var(--sub);font-size:11px}
+.sl-tx{flex:1;min-width:150px}.sl-tx b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sl-tx small{color:var(--sub);font-size:11px}
 .sl-bts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
 .sl-bts .bt{padding:6px 9px!important;min-width:32px}
 .sl-bts .bt:disabled{opacity:.35}

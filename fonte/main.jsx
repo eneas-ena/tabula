@@ -10,7 +10,7 @@ import { createRoot } from 'react-dom/client';
 import {
   Excalidraw, MainMenu, WelcomeScreen, exportToBlob, serializeAsJSON,
   useHandleLibrary, hashElementsVersion, newElementWith,
-  TTDDialog, TTDDialogTrigger, DiagramToCodePlugin,
+  TTDDialog, TTDDialogTrigger, DiagramToCodePlugin, restoreElements, CaptureUpdateAction,
 } from '@excalidraw/excalidraw';
 import { ativarCoresAmpliadas } from './cores.js';
 import { quadrosOrdenados, nomeQuadro, imagemDoQuadro, exportarPDF, exportarPPTX, entregarArquivo } from './slides.js';
@@ -275,6 +275,7 @@ async function entrar(u){
     return;
   }
   await enviarPendentes();
+  await sondarEtapa5();
   mostrarCenas();
 }
 
@@ -287,6 +288,58 @@ function semEtapa2(){
   etapa2 = false;
   if (!avisouEtapa2){ avisouEtapa2 = true; aviso('Para usar pastas e links, rode no Supabase o arquivo tabula-etapa2.sql.', 9000); }
 }
+/* ---------- etapa 5 (lixeira, histórico, comentários, imagens na nuvem) ---------- */
+let etapa5 = true, avisouEtapa5 = false;
+function semEtapa5(){
+  etapa5 = false;
+  if (!avisouEtapa5){ avisouEtapa5 = true; aviso('Para lixeira, histórico, comentários e imagens na nuvem, rode no Supabase o arquivo tabula-etapa5.sql.', 9000); }
+}
+async function sondarEtapa5(){
+  if (!navigator.onLine || !usuario) return;
+  const r = await sb.from('versoes').select('id').limit(1);
+  if (r.error && faltaColuna(r.error)) semEtapa5(); else if (!r.error) etapa5 = true;
+}
+
+/* ---------- imagens: ficam no Storage ("tabula/<usuário>/<código da imagem>"), não dentro da cena ---------- */
+const BALDE = 'tabula';
+const urlImagem = caminho => `${SUPA_URL}/storage/v1/object/public/${BALDE}/${caminho}`;
+async function separarImagens(usados){
+  const arquivos = {}, embutidos = {};
+  for (const [id, f] of Object.entries(usados)){
+    if (f.dataURL && !(await IDB.ler('img:' + id))) await IDB.gravar('img:' + id, f);       // cópia no aparelho (abre sem internet)
+    const meta = await IDB.ler('env:' + id);
+    if (meta){ arquivos[id] = meta; continue; }
+    if (etapa5 && navigator.onLine && usuario && f.dataURL){
+      const caminho = `${usuario.id}/${id}`;
+      try {
+        const blob = await (await fetch(f.dataURL)).blob();
+        const r = await sb.storage.from(BALDE).upload(caminho, blob, { contentType: f.mimeType, upsert: true, cacheControl: '31536000' });
+        if (!r.error){ const m = { id, mimeType: f.mimeType, created: f.created || Date.now(), caminho }; await IDB.gravar('env:' + id, m); arquivos[id] = m; continue; }
+        console.warn('imagem', r.error);
+      } catch (e) { console.warn('imagem', e); }
+    }
+    embutidos[id] = f;                                     // sem internet: vai dentro da cena e sobe na próxima vez
+  }
+  return { arquivos, embutidos };
+}
+async function buscarImagens(dados, jaTem = {}){
+  const lista = [];
+  for (const [id, m] of Object.entries((dados && dados.arquivos) || {})){
+    if (jaTem[id]) continue;
+    let f = await IDB.ler('img:' + id);
+    if (!f){
+      try {
+        const r = await fetch(urlImagem(m.caminho)); if (!r.ok) continue;
+        const b = await r.blob();
+        f = { id, mimeType: m.mimeType || b.type, dataURL: await blobParaDataURL(b), created: m.created || Date.now() };
+        IDB.gravar('img:' + id, f);
+      } catch { continue; }
+    }
+    lista.push(f);
+  }
+  return lista;
+}
+
 async function listarCenas(){
   let lista = (await IDB.ler('lista')) || [];
   if (navigator.onLine && usuario){
@@ -433,6 +486,7 @@ function mostrarCenas(){
     { info: `${NOME_APP} · v${VERSAO}` },
     { rotulo: 'Verificar atualização', fazer: () => verificarVersao(true) },
     { rotulo: 'Atualizar app agora', fazer: atualizarApp },
+    { rotulo: 'Lixeira', fazer: abrirLixeira },
     { rotulo: 'Assistente de IA…', fazer: configurarIA },
     ...(perfil && perfil.admin ? [{ rotulo: 'Acessos (autorizar pessoas)', fazer: abrirAcessos }] : []),
     { rotulo: 'Sair da conta', perigo: true, fazer: sair },
@@ -529,7 +583,7 @@ function desenharGrade(){
         { rotulo: 'Compartilhar link…', fazer: () => abrirCompartilhar(c.id, c.titulo, () => pintarCenas()) },
       ] : []),
       { rotulo: 'Duplicar', fazer: () => duplicarCena(c) },
-      { rotulo: 'Apagar', perigo: true, fazer: () => apagarCena(c) },
+      { rotulo: 'Mover para a lixeira', perigo: true, fazer: () => apagarCena(c) },
     ]);
   });
 }
@@ -550,12 +604,56 @@ async function duplicarCena(c){
   await gravarCena(nova); aviso('Cena duplicada.'); pintarCenas();
 }
 async function apagarCena(c){
-  if (!(await confirmar('Apagar cena', `Apagar “${c.titulo || 'Sem título'}”?`, 'Apagar', true))) return;
+  if (!(await confirmar('Mover para a lixeira', `Mover “${c.titulo || 'Sem título'}” para a lixeira? Dá para restaurar depois em ☰ → Lixeira.`, 'Mover para a lixeira'))) return;
   if (!navigator.onLine) return aviso('Precisa de internet para apagar.');
-  const r = await sb.from('cenas').update({ apagado: true, atualizado_em: agora() }).eq('id', c.id);
+  const mud = { apagado: true }; if (etapa5) mud.apagado_em = agora();
+  const r = await sb.from('cenas').update(mud).eq('id', c.id);
   if (r.error) return aviso('Não consegui apagar: ' + r.error.message, 5000);
   await IDB.apagar('cena:' + c.id); await IDB.apagar('pend:' + c.id);
-  listaAtual = listaAtual.filter(x => x.id !== c.id); desenharPastas(); desenharGrade(); aviso('Cena apagada.');
+  listaAtual = listaAtual.filter(x => x.id !== c.id); desenharPastas(); desenharGrade();
+  aviso('Cena movida para a lixeira.', 6000, { rotulo: 'Desfazer', fazer: () => restaurarDaLixeira(c.id) });
+}
+async function restaurarDaLixeira(id){
+  const mud = { apagado: false }; if (etapa5) mud.apagado_em = null;
+  const r = await sb.from('cenas').update(mud).eq('id', id);
+  if (r.error){ aviso('Não consegui restaurar: ' + r.error.message, 5000); return false; }
+  aviso('Cena restaurada.'); pintarCenas(); return true;
+}
+async function abrirLixeira(){
+  if (!navigator.onLine) return aviso('Precisa de internet para abrir a lixeira.');
+  if (!etapa5) return aviso('Rode no Supabase o arquivo tabula-etapa5.sql para usar a lixeira.', 6000);
+  const r = await sb.from('cenas').select('id,titulo,miniatura,apagado_em,atualizado_em').eq('apagado', true).order('apagado_em', { ascending: false, nullsFirst: false });
+  if (r.error) return aviso('Erro: ' + r.error.message, 5000);
+  let lista = r.data;
+  modal(`<h2>Lixeira</h2><p class="dica">Cenas apagadas ficam aqui até você restaurar ou apagar para sempre.</p><div id="lsLx"></div>
+    <div class="acoes"><button class="bt perigo" id="lxEsvaziar">Esvaziar lixeira</button><span style="flex:1"></span><button class="bt" data-x>Fechar</button></div>`, (m, fechar) => {
+    $('[data-x]', m).onclick = fechar;
+    const pintar = () => {
+      $('#lxEsvaziar', m).classList.toggle('oculto', !lista.length);
+      $('#lsLx', m).innerHTML = lista.length ? lista.map(c => `<div class="sl-item" data-id="${c.id}">
+          ${c.miniatura ? `<img class="sl-mini" src="${c.miniatura}" alt="">` : '<span class="sl-mini"></span>'}
+          <div class="sl-tx"><b>${esc(c.titulo || 'Sem título')}</b><small>Apagada em ${dataCurta(c.apagado_em || c.atualizado_em)}</small></div>
+          <div class="sl-bts"><button class="bt" data-a="rest">Restaurar</button><button class="bt perigo" data-a="del">Apagar para sempre</button></div></div>`).join('')
+        : '<div class="vazio-lista">A lixeira está vazia.</div>';
+      m.querySelectorAll('.sl-item').forEach(el => el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+        const id = el.dataset.id, c = lista.find(x => x.id === id);
+        if (b.dataset.a === 'rest'){ if (await restaurarDaLixeira(id)){ lista = lista.filter(x => x.id !== id); pintar(); } }
+        else {
+          if (!(await confirmar('Apagar para sempre', `“${c.titulo || 'Sem título'}” será apagada definitivamente, com o histórico e os comentários. Não dá para desfazer.`, 'Apagar para sempre', true))) return;
+          const x = await sb.from('cenas').delete().eq('id', id);
+          if (x.error) return aviso('Erro: ' + x.error.message, 5000);
+          lista = lista.filter(y => y.id !== id); pintar(); aviso('Apagada para sempre.');
+        }
+      }));
+    };
+    $('#lxEsvaziar', m).onclick = async () => {
+      if (!(await confirmar('Esvaziar lixeira', `Apagar definitivamente ${lista.length} ${lista.length > 1 ? 'cenas' : 'cena'}? Não dá para desfazer.`, 'Esvaziar', true))) return;
+      const x = await sb.from('cenas').delete().eq('apagado', true);
+      if (x.error) return aviso('Erro: ' + x.error.message, 5000);
+      lista = []; pintar(); aviso('Lixeira esvaziada.');
+    };
+    pintar();
+  });
 }
 
 /* ---------- compartilhar por link (só visualizar) ---------- */
@@ -641,7 +739,7 @@ async function abrirCena(id, tituloNovo){
   raizEditor.render(<Editor key={cena.id} cena={cena} />);
 }
 async function fecharEditor(){
-  if (editorAtual) await editorAtual.salvarAgora(true);
+  if (editorAtual) await editorAtual.salvarAgora(true, true);
   editorAtual = null;
   if (raizEditor){ raizEditor.render(null); }
   mostrarCenas();
@@ -686,6 +784,44 @@ function desenharRegua(cv, horizontal, vista, ponteiro){
   }
 }
 
+/* ---------- fio de comentário (balão ao lado do alfinete) ---------- */
+function FioComentario({ fio, respostas, numero, aoEnviar, aoResponder, aoResolver, aoApagar, aoApagarResposta, aoFechar }){
+  const [texto, setTexto] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const ta = useRef(null);
+  useEffect(() => { setTimeout(() => ta.current && ta.current.focus(), 60); }, [fio && fio.id]);
+  const enviar = async () => {
+    const t = texto.trim(); if (!t || enviando) return;
+    setEnviando(true);
+    const ok = fio.novo ? await aoEnviar(t) : await aoResponder(t);
+    setEnviando(false); if (ok) setTexto('');
+  };
+  const tecla = e => { e.stopPropagation(); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); enviar(); } if (e.key === 'Escape') aoFechar(); };
+  return (
+    <div className="com-fio" data-cx={fio.x} data-cy={fio.y} onPointerDown={e => e.stopPropagation()}>
+      <div className="com-cab">
+        <b>{fio.novo ? 'Novo comentário' : `Comentário ${numero}`}</b>
+        {!fio.novo && <button className={'com-mini' + (fio.resolvido ? ' ok' : '')} title={fio.resolvido ? 'Reabrir' : 'Marcar como resolvido'} onClick={aoResolver}>✓</button>}
+        {!fio.novo && <button className="com-mini" title="Apagar comentário" onClick={aoApagar}>🗑</button>}
+        <button className="com-mini" title="Fechar" onClick={aoFechar}>✕</button>
+      </div>
+      {!fio.novo && <div className="com-lista">
+        {[fio, ...respostas].map(c => (
+          <div className="com-msg" key={c.id}>
+            <div className="com-autor">{c.autor || 'Eu'} <small>{dataCurta(c.criado_em)}</small>
+              {c.pai && <button className="com-x" title="Apagar resposta" onClick={() => aoApagarResposta(c)}>×</button>}</div>
+            <div className="com-texto">{c.texto}</div>
+          </div>
+        ))}
+        {fio.resolvido && <div className="com-res">Resolvido</div>}
+      </div>}
+      <textarea ref={ta} value={texto} onChange={e => setTexto(e.target.value)} onKeyDown={tecla} onKeyUp={e => e.stopPropagation()}
+        placeholder={fio.novo ? 'Escreva o comentário…' : 'Responder…'} rows={fio.novo ? 3 : 2} />
+      <div className="com-acoes"><small>⌘/Ctrl + Enter envia</small><button className="com-enviar" disabled={!texto.trim() || enviando} onClick={enviar}>{enviando ? '…' : fio.novo ? 'Comentar' : 'Responder'}</button></div>
+    </div>
+  );
+}
+
 /* ---------- o componente do editor ---------- */
 function Editor({ cena }){
   const [api, setApi] = useState(null);
@@ -697,12 +833,30 @@ function Editor({ cena }){
   const [apresentando, setApresentando] = useState(false);
   const [idx, setIdx] = useState(0);
   const [laser, setLaser] = useState(false);
+  const [comentarios, setComentarios] = useState([]);
+  const [mostrarCom, setMostrarCom] = useState(lerLS('tb.mostrarCom', true));
+  const [modoCom, setModoCom] = useState(false);
+  const [fioAberto, setFioAberto] = useState(null);           // { id } de um comentário, ou { novo: true, x, y }
   const ref = useRef({ cena: { ...cena }, assinatura: null, alterado: false, tSalvar: null, ultimaMini: 0, salvando: null, vista: { scrollX: 0, scrollY: 0, zoom: 1 }, ponteiro: null, raf: 0,
-    slides: (cena.dados && cena.dados.tabula && cena.dados.tabula.slides) || [], idx: 0, apresentando: false });
-  const rH = useRef(null), rV = useRef(null), rPontos = useRef(null), palco = useRef(null), rMascara = useRef(null);
+    slides: (cena.dados && cena.dados.tabula && cena.dados.tabula.slides) || [], idx: 0, apresentando: false,
+    ultimaVersao: Date.now(), mudouDesdeVersao: false });
+  const rH = useRef(null), rV = useRef(null), rPontos = useRef(null), palco = useRef(null), rMascara = useRef(null), rCom = useRef(null);
   const st = ref.current;
 
   useEffect(() => api ? ativarCoresAmpliadas(() => api) : undefined, [api]);
+
+  /* ao abrir: imagens da nuvem, data da última versão guardada e comentários */
+  useEffect(() => {
+    if (!api) return;
+    buscarImagens(cena.dados, api.getFiles()).then(l => { if (l.length) api.addFiles(l); });
+    if (etapa5 && navigator.onLine && !cena.nova){
+      sb.from('versoes').select('criado_em').eq('cena_id', cena.id).order('criado_em', { ascending: false }).limit(1)
+        .then(r => { if (!r.error) st.ultimaVersao = r.data[0] ? Date.parse(r.data[0].criado_em) : 0; else if (faltaColuna(r.error)) semEtapa5(); });
+      sb.from('comentarios').select('*').eq('cena_id', cena.id).order('criado_em')
+        .then(r => { if (!r.error) setComentarios(r.data); });
+    } else if (cena.nova) st.ultimaVersao = 0;
+  }, [api]);
+  useEffect(() => gravarLS('tb.mostrarCom', mostrarCom), [mostrarCom]);
 
   /* botão "Enquadrar tudo" na barra de ferramentas, entre o cadeado e a mão */
   useEffect(() => {
@@ -717,18 +871,25 @@ function Editor({ cena }){
       const mao = document.querySelector('#telaEditor [data-testid="toolbar-hand"]');
       const rotulo = mao && mao.closest('label');
       if (!rotulo || rotulo.parentElement.querySelector('.tb-enquadrar')) return;
+      document.querySelectorAll('.tb-enquadrar,.tb-comentar').forEach(x => x.remove());
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'ToolIcon ToolIcon_size_medium tb-enquadrar';
       b.title = 'Enquadrar tudo — mostra todo o desenho na tela (Shift+1)'; b.setAttribute('aria-label', 'Enquadrar tudo');
       b.innerHTML = '<div class="ToolIcon__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg></div>';
       b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); enquadrarTudo(); });
+      const c = document.createElement('button');
+      c.type = 'button'; c.className = 'ToolIcon ToolIcon_size_medium tb-comentar';
+      c.title = 'Comentar — toque aqui e depois no ponto do desenho'; c.setAttribute('aria-label', 'Comentar');
+      c.innerHTML = '<div class="ToolIcon__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></div>';
+      c.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); st.alternarModoCom && st.alternarModoCom(); });
       const cadeado = rotulo.parentElement.querySelector('.ToolIcon__lock');
       if (cadeado) cadeado.insertAdjacentElement('afterend', b); else rotulo.insertAdjacentElement('beforebegin', b);
+      b.insertAdjacentElement('afterend', c);
     };
     por();
     const alvo = document.getElementById('telaEditor');
     const mo = new MutationObserver(por); mo.observe(alvo, { childList: true, subtree: true });
-    return () => { mo.disconnect(); document.querySelectorAll('.tb-enquadrar').forEach(x => x.remove()); };
+    return () => { mo.disconnect(); document.querySelectorAll('.tb-enquadrar,.tb-comentar').forEach(x => x.remove()); };
   }, [api]);
 
   useHandleLibrary({ excalidrawAPI: api, adapter: bibliotecaAdapter });
@@ -745,6 +906,14 @@ function Editor({ cena }){
       if (st.apresentando && rMascara.current){
         const q = quadrosOrdenados(api, st.slides)[st.idx], m = rMascara.current;
         if (q){ m.style.left = (q.x + v.scrollX) * v.zoom + 'px'; m.style.top = (q.y + v.scrollY) * v.zoom + 'px'; m.style.width = q.width * v.zoom + 'px'; m.style.height = q.height * v.zoom + 'px'; }
+      }
+      if (rCom.current){
+        const cw = palco.current ? palco.current.clientWidth : 1e4;
+        rCom.current.querySelectorAll('[data-cx]').forEach(el => {
+          const x = (+el.dataset.cx + v.scrollX) * v.zoom, y = (+el.dataset.cy + v.scrollY) * v.zoom;
+          el.style.left = x + 'px'; el.style.top = y + 'px';
+          if (el.classList.contains('com-fio')) el.classList.toggle('esq', x > cw - 340);
+        });
       }
       if (reguas && !st.apresentando){ desenharRegua(rH.current, true, v, st.ponteiro); desenharRegua(rV.current, false, v, st.ponteiro); }
       const p = rPontos.current;
@@ -774,17 +943,30 @@ function Editor({ cena }){
     return () => { rPontos.current && rPontos.current.remove(); rPontos.current = null; };
   }, [api, pontilhado, apresentando, redesenhar]);
 
+  /* ---------- histórico: guarda uma versão a cada 20 min de trabalho e ao sair ---------- */
+  const registrarVersao = useCallback(async (dados, motivo) => {
+    if (!etapa5 || !navigator.onLine || !dados) return false;
+    const r = await sb.from('versoes').insert({ cena_id: st.cena.id, titulo: st.titulo || st.cena.titulo, dados, motivo });
+    if (r.error){ if (faltaColuna(r.error)) semEtapa5(); else console.warn('versão', r.error); return false; }
+    st.ultimaVersao = Date.now(); st.mudouDesdeVersao = false; return true;
+  }, [st]);
+
   /* ---------- salvar ---------- */
-  const salvarAgora = useCallback(async (comMiniatura) => {
+  const salvarAgora = useCallback(async (comMiniatura, fim) => {
     clearTimeout(st.tSalvar);
-    if (!api || !st.alterado){ return; }
+    if (!api || !st.alterado){
+      if (fim && st.mudouDesdeVersao && st.cena.dados) await registrarVersao(st.cena.dados, 'ao sair');
+      return;
+    }
     if (st.salvando){ await st.salvando; if (!st.alterado) return; }
     st.alterado = false;
     const run = (async () => {
       setStatus('salvando');
       const elementos = api.getSceneElements(), appState = api.getAppState(), todos = api.getFiles();
       const usados = {}; elementos.forEach(e => { if (e.fileId && todos[e.fileId]) usados[e.fileId] = todos[e.fileId]; });
-      const dados = JSON.parse(serializeAsJSON(elementos, appState, usados, 'local'));
+      const { arquivos, embutidos } = await separarImagens(usados);           // imagens vão para o Storage
+      const dados = JSON.parse(serializeAsJSON(elementos, appState, embutidos, 'local'));
+      dados.arquivos = arquivos;
       dados.tabula = { slides: st.slides };                                    // ordem dos slides (quadros)
       const c = st.cena; c.dados = dados; c.titulo = st.titulo || c.titulo; c.atualizado_em = agora();
       if (comMiniatura || Date.now() - st.ultimaMini > 20000){
@@ -800,12 +982,17 @@ function Editor({ cena }){
       const r = await gravarCena({ ...c });
       delete c.nova;
       setStatus(r === 'ok' ? (st.alterado ? 'salvando' : 'ok') : r);
+      if (r === 'ok'){
+        st.mudouDesdeVersao = true;
+        if (Date.now() - st.ultimaVersao > 20 * 60 * 1000) await registrarVersao(c.dados, 'automática');
+        else if (fim) await registrarVersao(c.dados, 'ao sair');
+      }
     })();
     st.salvando = run; await run; st.salvando = null;
-  }, [api, st]);
+  }, [api, st, registrarVersao]);
   useEffect(() => { editorAtual = { salvarAgora }; }, [salvarAgora]);
   useEffect(() => {
-    const oculto = () => { if (document.visibilityState === 'hidden') salvarAgora(true); };
+    const oculto = () => { if (document.visibilityState === 'hidden') salvarAgora(true, true); };
     document.addEventListener('visibilitychange', oculto);
     window.addEventListener('pagehide', oculto);
     return () => { document.removeEventListener('visibilitychange', oculto); window.removeEventListener('pagehide', oculto); };
@@ -929,6 +1116,128 @@ function Editor({ cena }){
     } catch (e) { console.error(e); aviso('Não consegui gerar o ' + tipo + ': ' + (e.message || e), 7000); }
   };
 
+  /* ---------- histórico de versões ---------- */
+  const restaurarDados = async d => {
+    if (d.files) api.addFiles(Object.values(d.files));
+    const imgs = await buscarImagens(d, api.getFiles()); if (imgs.length) api.addFiles(imgs);
+    api.updateScene({ elements: restoreElements(d.elements || [], null), appState: { viewBackgroundColor: (d.appState && d.appState.viewBackgroundColor) || '#ffffff' }, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+    if (d.tabula && d.tabula.slides) st.slides = d.tabula.slides;
+    marcarAlterado();
+  };
+  const abrirHistorico = async () => {
+    if (!etapa5) return aviso('Rode no Supabase o arquivo tabula-etapa5.sql para usar o histórico.', 6000);
+    if (!navigator.onLine) return aviso('Precisa de internet para ver o histórico.');
+    await salvarAgora(true);
+    const r = await sb.from('versoes').select('id,criado_em,motivo').eq('cena_id', st.cena.id).order('criado_em', { ascending: false }).limit(60);
+    if (r.error) return aviso('Erro: ' + r.error.message, 5000);
+    const lista = r.data;
+    const quando = iso => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'agora há pouco' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : `há ${Math.round(m / 1440)} ${Math.round(m / 1440) > 1 ? 'dias' : 'dia'}`; };
+    modal(`<h2>Histórico de versões</h2><p class="dica">Guardo uma versão a cada 20 minutos de trabalho e sempre que você sai da cena (as 60 mais recentes). Depois de restaurar, Ctrl+Z desfaz.</p>
+      <div id="lsVer"></div><div class="acoes"><button class="bt" data-x>Fechar</button></div>`, (m, fechar) => {
+      $('[data-x]', m).onclick = fechar;
+      const cache = {};
+      const pegar = async id => cache[id] || (cache[id] = (await sb.from('versoes').select('dados').eq('id', id).single()).data.dados);
+      $('#lsVer', m).innerHTML = lista.length ? lista.map(v => `<div class="ver-item" data-id="${v.id}"><div class="sl-item" style="border:none">
+          <div class="sl-tx"><b>${dataCurta(v.criado_em)}</b><small>${quando(v.criado_em)} · ${esc(v.motivo || '')}</small></div>
+          <div class="sl-bts"><button class="bt" data-a="ver">Prévia</button><button class="bt pri" data-a="rest">Restaurar</button></div></div>
+          <img class="ver-previa oculto" alt=""></div>`).join('')
+        : '<div class="vazio-lista">Ainda não há versões guardadas desta cena. A primeira é guardada daqui a pouco, enquanto você trabalha.</div>';
+      m.querySelectorAll('.ver-item').forEach(el => el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+        const id = el.dataset.id;
+        try {
+          b.disabled = true; const d = await pegar(id); b.disabled = false;
+          if (b.dataset.a === 'ver'){
+            const img = el.querySelector('.ver-previa');
+            if (!img.classList.contains('oculto')){ img.classList.add('oculto'); return; }
+            const fs = { ...api.getFiles(), ...(d.files || {}) }; (await buscarImagens(d, fs)).forEach(f => { fs[f.id] = f; });
+            const els = (d.elements || []).filter(e => !e.isDeleted);
+            if (!els.length){ aviso('Esta versão está em branco.'); return; }
+            const blob = await exportToBlob({ elements: els, appState: { exportBackground: true, viewBackgroundColor: (d.appState && d.appState.viewBackgroundColor) || '#ffffff', exportWithDarkMode: false }, files: fs, maxWidthOrHeight: 700, mimeType: 'image/jpeg', quality: .8 });
+            img.src = await blobParaDataURL(blob); img.classList.remove('oculto');
+          } else {
+            if (!(await confirmar('Restaurar versão', `Voltar a cena para como estava em ${dataCurta(lista.find(x => x.id === id).criado_em)}? O estado atual também fica guardado no histórico.`, 'Restaurar'))) return;
+            await registrarVersao(st.cena.dados, 'antes de restaurar');
+            await restaurarDados(d); fechar(); aviso('Versão restaurada. Ctrl+Z desfaz.');
+          }
+        } catch (e) { b.disabled = false; aviso('Erro: ' + (e.message || e), 5000); }
+      }));
+    });
+  };
+
+  /* ---------- comentários ---------- */
+  const raizes = comentarios.filter(c => !c.pai);
+  const numeroDe = id => raizes.findIndex(c => c.id === id) + 1;
+  const abertos = raizes.filter(c => !c.resolvido).length;
+  const autorAtual = () => (perfil && perfil.nome) || (usuario && usuario.email) || 'Eu';
+  const garantirCenaSalva = async () => { if (st.cena.nova){ st.alterado = true; await salvarAgora(true); } return !st.cena.nova; };
+  const alternarModoCom = useCallback(() => {
+    if (!etapa5) return aviso('Rode no Supabase o arquivo tabula-etapa5.sql para usar os comentários.', 6000);
+    setFioAberto(null); setMostrarCom(true);
+    setModoCom(v => { if (!v) aviso('Toque no desenho onde quer deixar o comentário.', 3500); return !v; });
+  }, []);
+  st.alternarModoCom = alternarModoCom;
+  const colocarComentario = e => {
+    e.preventDefault(); e.stopPropagation();
+    const r = palco.current.getBoundingClientRect(), v = st.vista;
+    setModoCom(false);
+    setFioAberto({ novo: true, x: (e.clientX - r.left) / v.zoom - v.scrollX, y: (e.clientY - r.top) / v.zoom - v.scrollY });
+  };
+  const enviarComentario = async texto => {
+    if (!navigator.onLine){ aviso('Precisa de internet para comentar.'); return false; }
+    if (!(await garantirCenaSalva())){ aviso('Não consegui salvar a cena antes de comentar.'); return false; }
+    const r = await sb.from('comentarios').insert({ cena_id: st.cena.id, x: fioAberto.x, y: fioAberto.y, texto, autor: autorAtual() }).select('*').single();
+    if (r.error){ aviso('Erro: ' + r.error.message, 5000); return false; }
+    setComentarios(l => [...l, r.data]); setFioAberto({ id: r.data.id }); return true;
+  };
+  const responderComentario = async texto => {
+    const raiz = comentarios.find(c => c.id === fioAberto.id);
+    const r = await sb.from('comentarios').insert({ cena_id: st.cena.id, pai: raiz.id, x: raiz.x, y: raiz.y, texto, autor: autorAtual() }).select('*').single();
+    if (r.error){ aviso('Erro: ' + r.error.message, 5000); return false; }
+    setComentarios(l => [...l, r.data]); return true;
+  };
+  const resolverComentario = async c => {
+    const r = await sb.from('comentarios').update({ resolvido: !c.resolvido }).eq('id', c.id);
+    if (r.error) return aviso('Erro: ' + r.error.message, 5000);
+    setComentarios(l => l.map(x => x.id === c.id ? { ...x, resolvido: !c.resolvido } : x));
+    if (!c.resolvido){ setFioAberto(null); aviso('Comentário resolvido. Ele continua na lista de comentários.'); }
+  };
+  const apagarComentario = async c => {
+    if (!(await confirmar('Apagar comentário', 'Apagar este comentário e as respostas dele?', 'Apagar', true))) return;
+    const r = await sb.from('comentarios').delete().eq('id', c.id);
+    if (r.error) return aviso('Erro: ' + r.error.message, 5000);
+    setComentarios(l => l.filter(x => x.id !== c.id && x.pai !== c.id)); setFioAberto(null);
+  };
+  const apagarResposta = async c => {
+    const r = await sb.from('comentarios').delete().eq('id', c.id);
+    if (r.error) return aviso('Erro: ' + r.error.message, 5000);
+    setComentarios(l => l.filter(x => x.id !== c.id));
+  };
+  const irAoComentario = c => {
+    const v = st.vista, w = palco.current.clientWidth, h = palco.current.clientHeight;
+    api.updateScene({ appState: { scrollX: -c.x + w / 2 / v.zoom - 150 / v.zoom, scrollY: -c.y + h / 2 / v.zoom } });
+    setMostrarCom(true); setFioAberto({ id: c.id }); setTimeout(redesenhar, 50);
+  };
+  const abrirListaComentarios = () => {
+    if (!etapa5) return aviso('Rode no Supabase o arquivo tabula-etapa5.sql para usar os comentários.', 6000);
+    modal(`<h2>Comentários</h2><p class="dica">Para comentar, toque no botão de balão na barra de ferramentas e depois no ponto do desenho.</p><div id="lsCom"></div>
+      <div class="acoes"><button class="bt" data-x>Fechar</button></div>`, (m, fechar) => {
+      $('[data-x]', m).onclick = fechar;
+      const lista = comentarios.filter(c => !c.pai);
+      $('#lsCom', m).innerHTML = lista.length ? lista.map((c, i) => `<div class="sl-item" data-id="${c.id}"><span class="sl-n">${i + 1}</span>
+          <div class="sl-tx"><b style="white-space:normal">${esc(c.texto)}</b><small>${dataCurta(c.criado_em)} · ${comentarios.filter(x => x.pai === c.id).length} resposta(s)${c.resolvido ? ' · <span class="selo ok">resolvido</span>' : ''}</small></div>
+          <div class="sl-bts"><button class="bt" data-a="ir">Ir</button></div></div>`).join('')
+        : '<div class="vazio-lista">Nenhum comentário nesta cena.</div>';
+      m.querySelectorAll('[data-a="ir"]').forEach(b => b.onclick = () => { fechar(); irAoComentario(comentarios.find(c => c.id === b.closest('.sl-item').dataset.id)); });
+    });
+  };
+  useEffect(() => { redesenhar(); }, [comentarios, fioAberto, mostrarCom, modoCom, redesenhar]);
+  useEffect(() => {
+    document.querySelectorAll('.tb-comentar').forEach(b => { b.classList.toggle('ativo', modoCom); b.dataset.n = abertos || ''; });
+    if (!modoCom) return;
+    const esc_ = e => { if (e.key === 'Escape'){ e.stopPropagation(); setModoCom(false); } };
+    window.addEventListener('keydown', esc_, true); return () => window.removeEventListener('keydown', esc_, true);
+  }, [modoCom, abertos]);
+
   /* ---------- IA: texto → diagrama e rascunho de tela → página ---------- */
   const textoParaDiagrama = useCallback(async texto => {
     try {
@@ -1004,6 +1313,10 @@ function Editor({ cena }){
             <MainMenu.Item onSelect={() => exportar('PDF')}>Exportar PDF</MainMenu.Item>
             <MainMenu.Item onSelect={() => exportar('PowerPoint')}>Exportar PowerPoint (PPTX)</MainMenu.Item>
             <MainMenu.Separator />
+            <MainMenu.Item onSelect={abrirListaComentarios}>Comentários ({abertos} {abertos === 1 ? 'aberto' : 'abertos'})…</MainMenu.Item>
+            <MainMenu.Item onSelect={() => setMostrarCom(v => !v)}>{mostrarCom ? '☑' : '☐'} Mostrar comentários</MainMenu.Item>
+            <MainMenu.Item onSelect={abrirHistorico}>Histórico de versões…</MainMenu.Item>
+            <MainMenu.Separator />
             <MainMenu.DefaultItems.LoadScene />
             <MainMenu.DefaultItems.SaveToActiveFile />
             <MainMenu.DefaultItems.Export />
@@ -1035,6 +1348,24 @@ function Editor({ cena }){
             </WelcomeScreen.Center>
           </WelcomeScreen>
         </Excalidraw>
+        {!apresentando && <div className={'com-camada' + (modoCom ? ' colocando' : '')} ref={rCom}>
+          {modoCom && <div className="com-captura" onPointerDown={colocarComentario} />}
+          {mostrarCom && raizes.map((c, i) => (!c.resolvido || (fioAberto && fioAberto.id === c.id)) && (
+            <button key={c.id} className={'com-pino' + (c.resolvido ? ' resolvido' : '') + (fioAberto && fioAberto.id === c.id ? ' ativo' : '')}
+              data-cx={c.x} data-cy={c.y} title={c.texto} onPointerDown={e => e.stopPropagation()}
+              onClick={() => setFioAberto(fioAberto && fioAberto.id === c.id ? null : { id: c.id })}>{i + 1}</button>
+          ))}
+          {fioAberto && fioAberto.novo && <span className="com-pino novo" data-cx={fioAberto.x} data-cy={fioAberto.y}>+</span>}
+          {fioAberto && (() => {
+            const raiz = fioAberto.novo ? null : comentarios.find(c => c.id === fioAberto.id);
+            if (!fioAberto.novo && !raiz) return null;
+            return <FioComentario key={fioAberto.id || 'novo'} fio={fioAberto.novo ? fioAberto : raiz} numero={raiz ? numeroDe(raiz.id) : 0}
+              respostas={raiz ? comentarios.filter(c => c.pai === raiz.id) : []}
+              aoEnviar={enviarComentario} aoResponder={responderComentario}
+              aoResolver={() => resolverComentario(raiz)} aoApagar={() => apagarComentario(raiz)} aoApagarResposta={apagarResposta}
+              aoFechar={() => setFioAberto(null)} />;
+          })()}
+        </div>}
       </div>
       {apresentando && (() => { const n = quadrosOrdenados(api, st.slides).length; return (
         <div className="ap-controles">
@@ -1075,6 +1406,7 @@ function Visualizador({ cena, token }){
   const [temaV, setTemaV] = useState(tema);
   const [quando, setQuando] = useState(cena.atualizado_em);
   useEffect(() => { const f = x => setTemaV(x); ouvintesTema.add(f); return () => ouvintesTema.delete(f); }, []);
+  useEffect(() => { if (api) buscarImagens(cena.dados, api.getFiles()).then(l => { if (l.length) api.addFiles(l); }); }, [api]);
   const dados = cena.dados || {};
   const iniciais = useRef({ elements: dados.elements || [], files: dados.files || {}, appState: { viewBackgroundColor: (dados.appState && dados.appState.viewBackgroundColor) || '#ffffff' }, scrollToContent: true }).current;
   const recarregar = async () => {
@@ -1083,6 +1415,7 @@ function Visualizador({ cena, token }){
       if (!c) return aviso('Este link foi desligado.', 5000);
       const d = c.dados || {};
       if (d.files) api.addFiles(Object.values(d.files));
+      const imgs = await buscarImagens(d, api.getFiles()); if (imgs.length) api.addFiles(imgs);
       api.updateScene({ elements: d.elements || [], appState: { viewBackgroundColor: (d.appState && d.appState.viewBackgroundColor) || '#ffffff' } });
       setQuando(c.atualizado_em); aviso('Desenho atualizado.');
     } catch { aviso('Não consegui atualizar agora.'); }
