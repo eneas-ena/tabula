@@ -904,7 +904,12 @@ function Editor({ cena }){
 
   /* ---------- IA: texto → diagrama e rascunho de tela → página ---------- */
   const textoParaDiagrama = useCallback(async texto => {
-    try { const d = await chamarIA('/diagrama', { texto }); return { generatedResponse: d.mermaid }; }
+    try {
+      const d = await chamarIA('/diagrama', { texto });
+      // o conversor do editor não entende <br>: vira espaço, e a caixa quebra a linha sozinha
+      const m = String(d.mermaid || '').replace(/<br\s*\/?>/gi, ' ').replace(/ {2,}/g, ' ');
+      return { generatedResponse: m };
+    }
     catch (e) { return { error: e instanceof Error ? e : new Error(String(e)) }; }
   }, []);
   const rascunhoParaCodigo = useCallback(async ({ frame, children }) => {
