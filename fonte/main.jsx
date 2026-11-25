@@ -704,6 +704,33 @@ function Editor({ cena }){
 
   useEffect(() => api ? ativarCoresAmpliadas(() => api) : undefined, [api]);
 
+  /* botão "Enquadrar tudo" na barra de ferramentas, entre o cadeado e a mão */
+  useEffect(() => {
+    if (!api) return;
+    const enquadrarTudo = () => {
+      const els = api.getSceneElements();
+      if (!els.length) return aviso('Ainda não há nada desenhado nesta cena.');
+      api.updateScene({ appState: { selectedElementIds: {} } });          // fecha o painel lateral para nada ficar escondido atrás dele
+      api.scrollToContent(els, { fitToViewport: true, viewportZoomFactor: .8, animate: true, duration: 400 });   // aproxima ou afasta até caber tudo
+    };
+    const por = () => {
+      const mao = document.querySelector('#telaEditor [data-testid="toolbar-hand"]');
+      const rotulo = mao && mao.closest('label');
+      if (!rotulo || rotulo.parentElement.querySelector('.tb-enquadrar')) return;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'ToolIcon ToolIcon_size_medium tb-enquadrar';
+      b.title = 'Enquadrar tudo — mostra todo o desenho na tela (Shift+1)'; b.setAttribute('aria-label', 'Enquadrar tudo');
+      b.innerHTML = '<div class="ToolIcon__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg></div>';
+      b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); enquadrarTudo(); });
+      const cadeado = rotulo.parentElement.querySelector('.ToolIcon__lock');
+      if (cadeado) cadeado.insertAdjacentElement('afterend', b); else rotulo.insertAdjacentElement('beforebegin', b);
+    };
+    por();
+    const alvo = document.getElementById('telaEditor');
+    const mo = new MutationObserver(por); mo.observe(alvo, { childList: true, subtree: true });
+    return () => { mo.disconnect(); document.querySelectorAll('.tb-enquadrar').forEach(x => x.remove()); };
+  }, [api]);
+
   useHandleLibrary({ excalidrawAPI: api, adapter: bibliotecaAdapter });
 
   useEffect(() => { const f = t => setTemaEd(t); ouvintesTema.add(f); return () => ouvintesTema.delete(f); }, []);

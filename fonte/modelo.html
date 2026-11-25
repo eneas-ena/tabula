@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script>/* VERSÃO DO APP — a busca automática de atualização compara com esta linha */
-window.VERSAO = '0.4.1';
+window.VERSAO = '0.4.2';
 window.EXCALIDRAW_ASSET_PATH = ['https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/', 'https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.18.1/dist/prod/'];
 try { document.documentElement.dataset.tema = localStorage.getItem('tb.tema') === 'escuro' ? 'escuro' : 'claro'; } catch (e) {}
 </script>
@@ -138,6 +138,12 @@ input{font:inherit}
 
 @media (max-width:1300px){.tb-topo .tb-titulo{width:110px}.tb-rot{display:none}.excalidraw .default-sidebar-trigger .sidebar-trigger__label{display:none!important}}
 @media (max-width:1100px){.tb-topo .tb-titulo{display:none}}
+
+/* ---------- botão Enquadrar tudo ---------- */
+.excalidraw .tb-enquadrar{border:none;background:transparent;padding:0;margin:0;cursor:pointer;color:var(--icon-fill-color)}
+.excalidraw .tb-enquadrar .ToolIcon__icon{display:flex;align-items:center;justify-content:center}
+.excalidraw .tb-enquadrar .ToolIcon__icon svg{width:var(--icon-size,1rem);height:var(--icon-size,1rem)}
+.excalidraw .tb-enquadrar:hover .ToolIcon__icon{background:var(--button-hover-bg,var(--color-surface-mid))}
 
 /* ---------- apresentação ---------- */
 #telaEditor:fullscreen{background:#000}
