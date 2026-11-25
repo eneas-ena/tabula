@@ -1,7 +1,7 @@
-// Tábula — service worker v0.4.1
+// Tábula — service worker v0.4.2
 // Arquivos do app: rede primeiro (as atualizações do GitHub aparecem logo); sem internet, usa o que está guardado.
 // Fontes do Google e do editor (esm.sh / jsdelivr): guardadas na primeira vez.
-const CACHE = 'tabula-0.4.1';
+const CACHE = 'tabula-0.4.2';
 const BASICOS = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(BASICOS)).catch(() => {}).then(() => self.skipWaiting()));
