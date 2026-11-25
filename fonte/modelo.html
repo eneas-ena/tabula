@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script>/* VERSÃO DO APP — a busca automática de atualização compara com esta linha */
-window.VERSAO = '0.5.0';
+window.VERSAO = '0.5.1';
 window.EXCALIDRAW_ASSET_PATH = ['https://esm.sh/@excalidraw/excalidraw@0.18.1/dist/prod/', 'https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.18.1/dist/prod/'];
 try { document.documentElement.dataset.tema = localStorage.getItem('tb.tema') === 'escuro' ? 'escuro' : 'claro'; } catch (e) {}
 </script>
@@ -136,8 +136,15 @@ input{font:inherit}
 #login .ok{color:#1E9E50}
 #login .ver{text-align:center;font-size:11px;color:#9A9384;margin-top:6px}
 
-@media (max-width:1300px){.tb-topo .tb-titulo{width:110px}.tb-rot{display:none}.excalidraw .default-sidebar-trigger .sidebar-trigger__label{display:none!important}}
-@media (max-width:1240px){.tb-topo .tb-titulo{display:none}}
+/* barra de cima enxuta em telas menores (o app decide o nível medindo o espaço) */
+#telaEditor.c1 .tb-rot,#telaEditor.c1 .excalidraw .default-sidebar-trigger .sidebar-trigger__label{display:none!important}
+#telaEditor.c1 .tb-topo .tb-titulo{width:120px}
+#telaEditor.c2 .tb-topo .tb-titulo{display:none}
+#telaEditor.c3 .tb-rot-ap{display:none}
+#telaEditor.c4 .tb-topo .tb-opc{display:none}
+/* iPad em pé: os botões da cena descem para o canto de baixo, ao lado da ajuda */
+#telaEditor.c5 .tb-topo{position:fixed;right:64px;bottom:max(16px,env(safe-area-inset-bottom));z-index:5}
+#telaEditor.c5 .tb-topo .tb-opc{display:inline-flex}
 
 /* ---------- botão Enquadrar tudo ---------- */
 .excalidraw .tb-enquadrar{border:none;background:transparent;padding:0;margin:0;cursor:pointer;color:var(--icon-fill-color)}
@@ -229,7 +236,8 @@ input{font:inherit}
 .excalidraw .color-picker-content{max-height:min(80vh,640px);overflow-y:auto}
 
 /* ---------- editor ---------- */
-#telaEditor{position:fixed;inset:0;background:var(--regua)}
+#telaEditor{position:fixed;inset:0;top:env(safe-area-inset-top,0px);background:var(--regua)}
+#telaEditor:fullscreen{top:0}
 .ed-palco{position:absolute;inset:0}
 .ed-palco.com-reguas{left:20px;top:20px}
 .regua{position:absolute;background:var(--regua);z-index:2;display:block}

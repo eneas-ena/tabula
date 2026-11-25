@@ -858,6 +858,30 @@ function Editor({ cena }){
   }, [api]);
   useEffect(() => gravarLS('tb.mostrarCom', mostrarCom), [mostrarCom]);
 
+  /* barra de cima: vai enxugando até caber na largura da tela (iPad em pé ou deitado, Mac) */
+  useEffect(() => {
+    if (!api) return;
+    const tela = document.getElementById('telaEditor');
+    const NIVEIS = ['c1', 'c2', 'c3', 'c4', 'c5'];
+    const cabe = () => {
+      const dir = tela.querySelector('.layer-ui__wrapper__top-right'), barra = tela.querySelector('.App-toolbar');
+      if (!dir) return true;
+      const d = dir.getBoundingClientRect(), b = barra ? barra.getBoundingClientRect() : null;
+      return d.right <= window.innerWidth - 4 && (!b || !b.width || d.left >= b.right + 8);
+    };
+    let raf = 0;
+    const ajustar = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        NIVEIS.forEach(n => tela.classList.remove(n));
+        for (const n of NIVEIS){ if (cabe()) break; tela.classList.add(n); }
+      });
+    };
+    ajustar(); const t1 = setTimeout(ajustar, 400), t2 = setTimeout(ajustar, 1500);
+    window.addEventListener('resize', ajustar); window.addEventListener('orientationchange', ajustar);
+    return () => { clearTimeout(t1); clearTimeout(t2); window.removeEventListener('resize', ajustar); window.removeEventListener('orientationchange', ajustar); NIVEIS.forEach(n => tela.classList.remove(n)); };
+  }, [api, apresentando]);
+
   /* botão "Enquadrar tudo" na barra de ferramentas, entre o cadeado e a mão */
   useEffect(() => {
     if (!api) return;
@@ -1269,9 +1293,9 @@ function Editor({ cena }){
     <div className="tb-topo">
       <button className="tb-bt" title="Voltar às cenas" onClick={fecharEditor}><IcR d={D_VOLTAR} />{!isMobile && <span className="tb-rot">Cenas</span>}</button>
       {!isMobile && <input className="tb-titulo" value={titulo} onChange={e => mudarTitulo(e.target.value)} title="Nome da cena" />}
-      <button className="tb-bt" title="Slides (ordem dos quadros)" onClick={abrirSlides}><IcR d={D_SLIDES} /></button>
-      <button className="tb-bt tb-play" title="Apresentar" onClick={() => iniciarApresentacao(0)}><IcR d={D_PLAY} />{!isMobile && 'Apresentar'}</button>
-      <button className="tb-bt" title="Compartilhar link" onClick={async () => { await salvarAgora(true); abrirCompartilhar(st.cena.id, st.titulo || titulo); }}><IcR d={D_LINK} /></button>
+      <button className="tb-bt tb-opc" title="Slides (ordem dos quadros)" onClick={abrirSlides}><IcR d={D_SLIDES} /></button>
+      <button className="tb-bt tb-play" title="Apresentar" onClick={() => iniciarApresentacao(0)}><IcR d={D_PLAY} />{!isMobile && <span className="tb-rot-ap">Apresentar</span>}</button>
+      <button className="tb-bt tb-opc" title="Compartilhar link" onClick={async () => { await salvarAgora(true); abrirCompartilhar(st.cena.id, st.titulo || titulo); }}><IcR d={D_LINK} /></button>
       <span className={'tb-st ' + corStatus} title={textoStatus}></span>
       <button className="tb-bt" title={temaEd === 'escuro' ? 'Modo claro' : 'Modo escuro'} onClick={trocarTema}><IcR d={temaEd === 'escuro' ? D_SOL : D_LUA} /></button>
       <span className="tb-ver">v{VERSAO}</span>
