@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client';
 import {
   Excalidraw, MainMenu, WelcomeScreen, exportToBlob, serializeAsJSON,
   useHandleLibrary, hashElementsVersion, newElementWith,
+  TTDDialog, TTDDialogTrigger, DiagramToCodePlugin,
 } from '@excalidraw/excalidraw';
 import { ativarCoresAmpliadas } from './cores.js';
 import { quadrosOrdenados, nomeQuadro, imagemDoQuadro, exportarPDF, exportarPPTX, entregarArquivo } from './slides.js';
@@ -354,6 +355,50 @@ const bibliotecaAdapter = {
 };
 
 /* =====================================================================
+   ASSISTENTE DE IA (Worker "tabula-ia" no Cloudflare)
+   O endereço fica guardado na própria conta (vale no iPad e no Mac).
+   ===================================================================== */
+const iaUrl = () => ((usuario && usuario.user_metadata && usuario.user_metadata.tabula_ia) || lerLS('tb.ia', '') || '').replace(/\/+$/, '');
+async function chamarIA(rota, corpo){
+  const base = iaUrl();
+  if (!base) throw new Error('O assistente de IA ainda não foi configurado. Toque em ☰ → "Assistente de IA…" e cole o endereço do Worker.');
+  if (!navigator.onLine) throw new Error('Sem internet.');
+  const s = (await sb.auth.getSession()).data.session;
+  if (!s) throw new Error('Entre na sua conta de novo.');
+  let r;
+  try { r = await fetch(base + rota, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.access_token }, body: JSON.stringify(corpo) }); }
+  catch { throw new Error('Não consegui falar com o assistente de IA. Confira o endereço em ☰ → "Assistente de IA…".'); }
+  let d = {}; try { d = await r.json(); } catch {}
+  if (!r.ok || d.erro) throw new Error(d.erro || ('Erro ' + r.status));
+  return d;
+}
+function configurarIA(){
+  modal(`<h2>Assistente de IA</h2>
+    <p class="dica">Cole o endereço do Worker <b>tabula-ia</b> do Cloudflare (ex.: https://tabula-ia.<i>seu-nome</i>.workers.dev). Fica salvo na sua conta e vale em todos os aparelhos.</p>
+    <input class="campo" id="iaUrl" placeholder="https://tabula-ia....workers.dev" value="${esc(iaUrl())}" inputmode="url" autocapitalize="off" spellcheck="false">
+    <div class="dica" id="iaMsg" style="margin-top:10px"></div>
+    <div class="acoes"><button class="bt" data-x>Fechar</button><button class="bt" id="iaTestar">Testar</button><button class="bt pri" id="iaSalvar">Salvar</button></div>`, (m, fechar) => {
+    $('[data-x]', m).onclick = fechar;
+    const msg = (t, ok) => { const e = $('#iaMsg', m); e.textContent = t; e.style.color = ok === true ? '#1E9E50' : ok === false ? '#C0392B' : ''; };
+    const valor = () => $('#iaUrl', m).value.trim().replace(/\/+$/, '');
+    $('#iaTestar', m).onclick = async () => {
+      const u = valor(); if (!/^https:\/\//.test(u)) return msg('O endereço deve começar com https://', false);
+      msg('Testando…');
+      try { const r = await fetch(u + '/saude'); const d = await r.json();
+        if (!d.ok) return msg('Respondeu, mas não parece ser o tabula-ia.', false);
+        msg(d.chave ? `Funcionando ✓ (modelo ${d.modelo})` : 'O Worker respondeu, mas falta o segredo ANTHROPIC_API_KEY.', !!d.chave);
+      } catch { msg('Não consegui acessar esse endereço.', false); }
+    };
+    $('#iaSalvar', m).onclick = async () => {
+      const u = valor(); if (u && !/^https:\/\//.test(u)) return msg('O endereço deve começar com https://', false);
+      gravarLS('tb.ia', u);
+      if (navigator.onLine && usuario){ const r = await sb.auth.updateUser({ data: { tabula_ia: u } }); if (!r.error && r.data && r.data.user) usuario = r.data.user; }
+      msg('Salvo ✓', true); setTimeout(fechar, 700);
+    };
+  });
+}
+
+/* =====================================================================
    TELA DAS CENAS
    ===================================================================== */
 let filtro = '', listaAtual = [], pastas = [], pastaAtual = lerLS('tb.pasta', 'todas');
@@ -388,6 +433,7 @@ function mostrarCenas(){
     { info: `${NOME_APP} · v${VERSAO}` },
     { rotulo: 'Verificar atualização', fazer: () => verificarVersao(true) },
     { rotulo: 'Atualizar app agora', fazer: atualizarApp },
+    { rotulo: 'Assistente de IA…', fazer: configurarIA },
     ...(perfil && perfil.admin ? [{ rotulo: 'Acessos (autorizar pessoas)', fazer: abrirAcessos }] : []),
     { rotulo: 'Sair da conta', perigo: true, fazer: sair },
   ]);
@@ -856,6 +902,20 @@ function Editor({ cena }){
     } catch (e) { console.error(e); aviso('Não consegui gerar o ' + tipo + ': ' + (e.message || e), 7000); }
   };
 
+  /* ---------- IA: texto → diagrama e rascunho de tela → página ---------- */
+  const textoParaDiagrama = useCallback(async texto => {
+    try { const d = await chamarIA('/diagrama', { texto }); return { generatedResponse: d.mermaid }; }
+    catch (e) { return { error: e instanceof Error ? e : new Error(String(e)) }; }
+  }, []);
+  const rascunhoParaCodigo = useCallback(async ({ frame, children }) => {
+    const b = await exportToBlob({ elements: children, appState: { exportBackground: true, viewBackgroundColor: '#ffffff', exportWithDarkMode: false },
+      files: api ? api.getFiles() : {}, exportingFrame: frame, mimeType: 'image/png', maxWidthOrHeight: 1200 });
+    const imagem = await blobParaDataURL(b);
+    const textos = children.filter(e => e.type === 'text').map(e => e.text);
+    const d = await chamarIA('/codigo', { imagem, textos });
+    return { html: d.html };
+  }, [api]);
+
   const mudarTitulo = v => { setTitulo(v); st.titulo = v; st.alterado = true; clearTimeout(st.tSalvar); st.tSalvar = setTimeout(() => salvarAgora(false), 1200); };
 
   const iniciais = useRef(cena.dados ? { ...cena.dados, appState: { ...(cena.dados.appState || {}) }, scrollToContent: !(cena.dados.appState && cena.dados.appState.scrollX !== undefined) } : { appState: { viewBackgroundColor: '#ffffff' } }).current;
@@ -898,7 +958,11 @@ function Editor({ cena }){
           renderTopRightUI={topoDireita}
           UIOptions={{ canvasActions: { toggleTheme: false } }}
           viewModeEnabled={apresentando}
+          aiEnabled={true}
         >
+          <TTDDialogTrigger />
+          <TTDDialog onTextSubmit={textoParaDiagrama} />
+          <DiagramToCodePlugin generate={rascunhoParaCodigo} />
           <MainMenu>
             <MainMenu.Item onSelect={fecharEditor}>← Voltar às cenas</MainMenu.Item>
             <MainMenu.Item onSelect={async () => { const t = await pedirTexto('Nome da cena', titulo); if (t) mudarTitulo(t); }}>Renomear cena</MainMenu.Item>
@@ -921,6 +985,7 @@ function Editor({ cena }){
             <MainMenu.Item onSelect={trocarTema}>{temaEd === 'escuro' ? '☀ Modo claro' : '☾ Modo escuro'}</MainMenu.Item>
             <MainMenu.DefaultItems.ChangeCanvasBackground />
             <MainMenu.Separator />
+            <MainMenu.Item onSelect={configurarIA}>Assistente de IA…</MainMenu.Item>
             <MainMenu.Item onSelect={() => verificarVersao(true)}>Verificar atualização (v{VERSAO})</MainMenu.Item>
             <MainMenu.Item onSelect={atualizarApp}>Atualizar app agora</MainMenu.Item>
           </MainMenu>

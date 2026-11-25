@@ -25,6 +25,20 @@ const TROCAS = [
   [/"Excalidraw links"/g, '"Links da Tábula"'],
   [/"Excalidraw Embedded Content"/g, '"Conteúdo incorporado"'],
   [/\?"Frame":"AI Frame"/g, '?"Quadro":"Quadro IA"'],
+  // janela de IA (texto para diagrama)
+  [/"Currently we use Mermaid as a middle step, so you'll get best results if you describe a diagram, workflow, flow chart, and similar\."/g, '"Descreva o que você quer ver: fluxograma, processo, esboço de sermão, mapa mental, linha do tempo. Ex.: Esboço de Romanos 8 em 4 pontos."'],
+  [/"View as Mermaid"/g, '"Ver o código Mermaid"'],
+  [/label:"Insert"/g, 'label:"Inserir"'],
+  [/children:"AI Beta"/g, 'children:"IA"'],
+  [/label:"Preview"/g, 'label:"Prévia"'],
+  [/placeholder:"Describe what you want to see\.\.\."/g, 'placeholder:"Descreva o que você quer ver..."'],
+  [/placeholder:"Write Mermaid diagram defintion here\.\.\."/g, 'placeholder:"Escreva aqui o código Mermaid..."'],
+  [/"Generated an invalid diagram :\(\. You may also try a different prompt\."/g, '"A IA gerou um diagrama inválido. Tente pedir de outro jeito."'],
+  [/"Cannot generate from an empty frame"/g, '"O quadro está vazio."'],
+  [/"Generation failed"/g, '"Não foi possível gerar."'],
+  [/"Generation was interrupted\.\.\."/g, '"A geração foi interrompida..."'],
+  [/"Request failed"/g, '"O pedido falhou"'],
+  [/"Unknown error during generation"/g, '"Erro desconhecido ao gerar"'],
 ];
 function trocarNome(){
   const usadas = new Set();
